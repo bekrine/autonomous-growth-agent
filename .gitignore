@@ -1,0 +1,12 @@
+node_modules/
+dist/
+build/
+.next/
+*.tsbuildinfo
+.env
+.env.local
+.DS_Store
+coverage/
+pgdata/
+redisdata/
+npm-debug.log*

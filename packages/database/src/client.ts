@@ -1,0 +1,26 @@
+import { drizzle } from "drizzle-orm/postgres-js";
+import postgres from "postgres";
+import * as schema from "./schema/index.js";
+
+export type Database = ReturnType<typeof drizzle<typeof schema>>;
+
+let sql: postgres.Sql | undefined;
+let db: Database | undefined;
+
+/**
+ * Creates (and memoizes) the singleton Postgres connection + Drizzle
+ * client for this process. Postgres is the single source of truth for all
+ * persistent business data — Redis/BullMQ are for transient job state only.
+ */
+export function createDatabase(connectionString: string): Database {
+  if (db) return db;
+  sql = postgres(connectionString, { max: 10 });
+  db = drizzle(sql, { schema });
+  return db;
+}
+
+export async function closeDatabase(): Promise<void> {
+  await sql?.end({ timeout: 5 });
+  sql = undefined;
+  db = undefined;
+}

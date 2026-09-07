@@ -1,0 +1,36 @@
+FROM node:22-alpine AS base
+WORKDIR /app
+
+FROM base AS deps
+COPY package.json package-lock.json ./
+COPY apps/api/package.json apps/api/package.json
+COPY packages/shared/package.json packages/shared/package.json
+COPY packages/database/package.json packages/database/package.json
+COPY packages/llm/package.json packages/llm/package.json
+COPY packages/social-platforms/package.json packages/social-platforms/package.json
+COPY packages/policies/package.json packages/policies/package.json
+COPY packages/media/package.json packages/media/package.json
+COPY packages/agent-core/package.json packages/agent-core/package.json
+RUN npm install
+
+FROM deps AS build
+COPY tsconfig.base.json ./
+COPY apps/api apps/api
+COPY packages packages
+COPY migrations migrations
+RUN npm run build --workspace=@agent/shared \
+ && npm run build --workspace=@agent/database \
+ && npm run build --workspace=@agent/llm \
+ && npm run build --workspace=@agent/social-platforms \
+ && npm run build --workspace=@agent/policies \
+ && npm run build --workspace=@agent/media \
+ && npm run build --workspace=@agent/agent-core \
+ && npm run build --workspace=@agent/api
+
+FROM base AS runtime
+ENV NODE_ENV=production
+COPY --from=build /app /app
+EXPOSE 4000
+HEALTHCHECK --interval=15s --timeout=5s --start-period=10s --retries=5 \
+  CMD node -e "fetch('http://localhost:4000/api/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"
+CMD ["node", "apps/api/dist/server.js"]

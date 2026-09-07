@@ -1,0 +1,34 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "NodeNext",
+    "moduleResolution": "NodeNext",
+    "lib": ["ES2022"],
+    "strict": true,
+    "declaration": true,
+    "composite": true,
+    "esModuleInterop": true,
+    "skipLibCheck": true,
+    "forceConsistentCasingInFileNames": true,
+    "resolveJsonModule": true,
+    "noUnusedLocals": true,
+    "noUnusedParameters": true,
+    "noImplicitOverride": true,
+    "noFallthroughCasesInSwitch": true,
+    "isolatedModules": true
+  },
+  "files": [],
+  "references": [
+    { "path": "packages/shared" },
+    { "path": "packages/database" },
+    { "path": "packages/llm" },
+    { "path": "packages/social-platforms" },
+    { "path": "packages/policies" },
+    { "path": "packages/media" },
+    { "path": "packages/agent-core" },
+    { "path": "apps/api" },
+    { "path": "workers/agent-worker" },
+    { "path": "workers/publishing-worker" },
+    { "path": "workers/analytics-worker" }
+  ]
+}

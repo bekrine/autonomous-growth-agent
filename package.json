@@ -1,0 +1,37 @@
+{
+  "name": "autonomous-growth-agent",
+  "private": true,
+  "version": "0.1.0",
+  "description": "Autonomous AI agent foundation for social-media growth",
+  "workspaces": [
+    "apps/*",
+    "workers/*",
+    "packages/*"
+  ],
+  "scripts": {
+    "build": "npm run build --workspaces --if-present",
+    "dev:api": "npm run dev --workspace=apps/api",
+    "dev:web": "npm run dev --workspace=apps/web",
+    "dev:agent-worker": "npm run dev --workspace=workers/agent-worker",
+    "dev:publishing-worker": "npm run dev --workspace=workers/publishing-worker",
+    "dev:analytics-worker": "npm run dev --workspace=workers/analytics-worker",
+    "test": "npm run test --workspaces --if-present",
+    "lint": "eslint . --ext .ts,.tsx",
+    "format": "prettier --write .",
+    "typecheck": "tsc -b --pretty",
+    "db:generate": "npm run db:generate --workspace=@agent/database",
+    "db:migrate": "npm run db:migrate --workspace=@agent/database"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.0",
+    "typescript": "^5.7.2",
+    "eslint": "^9.16.0",
+    "@typescript-eslint/eslint-plugin": "^8.18.0",
+    "@typescript-eslint/parser": "^8.18.0",
+    "prettier": "^3.4.2",
+    "vitest": "^2.1.8"
+  },
+  "engines": {
+    "node": ">=20.0.0"
+  }
+}

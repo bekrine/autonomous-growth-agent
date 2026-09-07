@@ -1,0 +1,35 @@
+{
+  "name": "@agent/api",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "main": "./dist/server.js",
+  "scripts": {
+    "build": "tsc -b",
+    "dev": "tsx watch src/server.ts",
+    "start": "node dist/server.js",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@agent/shared": "*",
+    "@agent/database": "*",
+    "@agent/llm": "*",
+    "@agent/social-platforms": "*",
+    "@agent/policies": "*",
+    "@agent/agent-core": "*",
+    "express": "^4.21.2",
+    "cors": "^2.8.5",
+    "zod": "^3.24.1",
+    "ioredis": "^5.4.2",
+    "bullmq": "^5.34.2"
+  },
+  "devDependencies": {
+    "@types/express": "^5.0.0",
+    "@types/cors": "^2.8.17",
+    "typescript": "^5.7.2",
+    "tsx": "^4.19.2",
+    "vitest": "^2.1.8",
+    "supertest": "^7.0.0",
+    "@types/supertest": "^6.0.2"
+  }
+}
