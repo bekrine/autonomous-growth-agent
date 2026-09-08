@@ -1,10 +1,10 @@
 import { desc, eq } from "drizzle-orm";
-import type { Database } from "../client.js";
+import type { DrizzleClient } from "../client.js";
 import { agentActions, agentDecisions, agentRuns } from "../schema/index.js";
 import type { AgentRunStatus } from "@agent/shared";
 
 export class AgentRunRepository {
-  constructor(private readonly db: Database) {}
+  constructor(private readonly db: DrizzleClient) {}
 
   async create(socialAccountId: string) {
     const [row] = await this.db

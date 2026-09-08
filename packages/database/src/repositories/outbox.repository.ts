@@ -1,5 +1,5 @@
 import { and, eq } from "drizzle-orm";
-import type { Database } from "../client.js";
+import type { DrizzleClient } from "../client.js";
 import { outboxEvents } from "../schema/index.js";
 
 export interface OutboxEventInput {
@@ -15,7 +15,7 @@ export interface OutboxEventInput {
  * `db.transaction(async (tx) => ...)`) when writing both together.
  */
 export class OutboxRepository {
-  constructor(private readonly db: Database) {}
+  constructor(private readonly db: DrizzleClient) {}
 
   async enqueue(event: OutboxEventInput) {
     const [row] = await this.db.insert(outboxEvents).values(event).returning();

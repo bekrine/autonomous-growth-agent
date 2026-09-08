@@ -10,16 +10,21 @@ function createFakeDeps(): AppDependencies {
     logger: createLogger({ name: "test", level: "silent" }),
     db: { execute: vi.fn(async () => undefined) } as unknown as AppDependencies["db"],
     redis: { ping: vi.fn(async () => "PONG"), quit: vi.fn() } as unknown as AppDependencies["redis"],
-    llm: { name: "mock", generateText: vi.fn() },
+    llm: { name: "mock", generateText: vi.fn(), generateStructured: vi.fn() },
+    agentQueueProducer: { enqueueRun: vi.fn(), close: vi.fn() } as unknown as AppDependencies["agentQueueProducer"],
     agentSystem: {
       orchestrator: { executeRun: vi.fn() },
+      agentRunService: { listRuns: vi.fn(async () => []) },
       toolRouter: {},
       policyEngine: {},
       killSwitch: { setGlobalDisabled: vi.fn() },
       repositories: {
         socialAccountRepository: { listAll: vi.fn(async () => []) },
+        agentProfileRepository: {},
         strategyRepository: {},
         agentRunRepository: { listRecent: vi.fn(async () => []) },
+        researchRepository: {},
+        contentRepository: {},
       },
     } as unknown as AppDependencies["agentSystem"],
   };

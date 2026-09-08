@@ -9,6 +9,10 @@ COPY workers/publishing-worker/package.json workers/publishing-worker/package.js
 COPY workers/analytics-worker/package.json workers/analytics-worker/package.json
 COPY packages/shared/package.json packages/shared/package.json
 COPY packages/database/package.json packages/database/package.json
+COPY packages/llm/package.json packages/llm/package.json
+COPY packages/social-platforms/package.json packages/social-platforms/package.json
+COPY packages/policies/package.json packages/policies/package.json
+COPY packages/agent-core/package.json packages/agent-core/package.json
 RUN npm install
 
 FROM deps AS build
@@ -17,8 +21,16 @@ COPY tsconfig.base.json ./
 COPY workers workers
 COPY packages/shared packages/shared
 COPY packages/database packages/database
+COPY packages/llm packages/llm
+COPY packages/social-platforms packages/social-platforms
+COPY packages/policies packages/policies
+COPY packages/agent-core packages/agent-core
 RUN npm run build --workspace=@agent/shared \
  && npm run build --workspace=@agent/database \
+ && npm run build --workspace=@agent/llm \
+ && npm run build --workspace=@agent/social-platforms \
+ && npm run build --workspace=@agent/policies \
+ && npm run build --workspace=@agent/agent-core \
  && npm run build --workspace=${WORKSPACE_NAME}
 
 FROM base AS runtime

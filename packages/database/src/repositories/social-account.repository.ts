@@ -1,5 +1,5 @@
 import { eq } from "drizzle-orm";
-import type { Database } from "../client.js";
+import type { DrizzleClient } from "../client.js";
 import { socialAccounts, users } from "../schema/index.js";
 
 export interface CreateSocialAccountInput {
@@ -15,7 +15,7 @@ export interface CreateSocialAccountInput {
  * on Drizzle directly — keeping persistence swappable and testable.
  */
 export class SocialAccountRepository {
-  constructor(private readonly db: Database) {}
+  constructor(private readonly db: DrizzleClient) {}
 
   async findById(id: string) {
     const [row] = await this.db.select().from(socialAccounts).where(eq(socialAccounts.id, id));

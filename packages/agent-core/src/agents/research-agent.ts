@@ -1,51 +1,74 @@
 import type { Agent, AgentContext, AgentResult } from "../types.js";
-import type { SearchWebInput, SearchWebResult } from "../tools/search-web.js";
-import type { GetAccountInput, GetAccountOutput } from "../tools/get-account.js";
+import type { ResearchProvider } from "../research/research-provider.js";
+import { buildResearchPrompt, ResearchResultSchema } from "../prompts/research.prompt.js";
 
 /**
- * Researches the account's niche/audience/competitors. For this phase it
- * runs a single mock search and records the finding as a decision — the
- * real implementation will fan out into multiple searches/trend sources.
+ * Identifies content opportunities for the account from its niche,
+ * audience, goal, current strategy, recent content and research signals.
+ * The research source is injected (`ResearchProvider`) so a real
+ * web/trend/social provider can replace `MockResearchProvider` later
+ * without this agent changing.
  */
 export class ResearchAgent implements Agent {
   readonly name = "research" as const;
 
+  constructor(private readonly researchProvider: ResearchProvider) {}
+
   async run(context: AgentContext): Promise<AgentResult> {
-    const accountResult = await context.tools.call<GetAccountInput, GetAccountOutput>(
-      "getAccount",
-      context.accountId,
-      { accountId: context.accountId },
-    );
+    const priorTopics = context.research.map((r) => r.topic);
 
-    if (!accountResult.success || !accountResult.data) {
-      return {
-        decisions: [
-          { decision: "research_failed", reason: accountResult.error ?? "Account not found" },
-        ],
-        actions: [{ actionType: "getAccount", status: "failed", result: { error: accountResult.error } }],
-      };
-    }
+    const signals = await this.researchProvider.discoverTopics({
+      niche: context.account.niche,
+      targetAudience: context.account.targetAudience,
+      excludeTopics: priorTopics,
+    });
 
-    const account = accountResult.data;
-    const searchResult = await context.tools.call<SearchWebInput, SearchWebResult>(
-      "searchWeb",
-      context.accountId,
-      { query: `${account.platform} content trends for ${account.displayName}` },
-    );
+    const { systemPrompt, prompt } = buildResearchPrompt({
+      niche: context.account.niche,
+      targetAudience: context.account.targetAudience,
+      goalTitle: context.goal?.title ?? null,
+      strategySummary: context.currentStrategy?.summary ?? null,
+      recentContentTitles: context.recentContent.map((c) => c.title),
+      priorResearchTopics: priorTopics,
+      signals: signals.map((s) => ({
+        topic: s.topic,
+        signalStrength: s.signalStrength,
+        sourceType: s.sourceType,
+      })),
+    });
+
+    const result = await context.llm.generateStructured({
+      systemPrompt,
+      prompt,
+      schema: ResearchResultSchema,
+      schemaName: "ResearchResult",
+      runId: context.runId,
+      agentName: this.name,
+    });
+
+    const allSimulated = signals.length === 0 || signals.every((s) => s.sourceType === "mock");
 
     return {
       decisions: [
         {
-          decision: "research_completed",
-          reason: `Gathered ${searchResult.data?.results.length ?? 0} research result(s) for account ${account.displayName}`,
-          metadata: { platform: account.platform },
+          decision: "research_topics_discovered",
+          reason: `Identified ${result.topics.length} candidate topic(s) from ${signals.length} research signal(s) via the "${this.researchProvider.name}" provider.`,
+          metadata: {
+            topicCount: result.topics.length,
+            topTopics: result.topics.slice(0, 3).map((t) => t.topic),
+            simulatedSource: allSimulated,
+          },
         },
       ],
       actions: [
-        { actionType: "getAccount", status: "succeeded", result: account },
-        { actionType: "searchWeb", status: searchResult.success ? "succeeded" : "failed", result: searchResult.data },
+        {
+          actionType: "research_topics",
+          status: "succeeded",
+          payload: { signalCount: signals.length, provider: this.researchProvider.name },
+          result,
+        },
       ],
-      data: { account, research: searchResult.data },
+      data: { topics: result.topics },
     };
   }
 }

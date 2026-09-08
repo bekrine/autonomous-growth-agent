@@ -5,3 +5,5 @@ export * from "./strategy.repository.js";
 export * from "./content.repository.js";
 export * from "./analytics.repository.js";
 export * from "./experiment.repository.js";
+export * from "./agent-profile.repository.js";
+export * from "./research.repository.js";

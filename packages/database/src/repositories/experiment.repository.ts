@@ -1,10 +1,10 @@
 import { desc, eq } from "drizzle-orm";
-import type { Database } from "../client.js";
+import type { DrizzleClient } from "../client.js";
 import { agentProfiles, experiments } from "../schema/index.js";
 import { socialAccounts } from "../schema/core.js";
 
 export class ExperimentRepository {
-  constructor(private readonly db: Database) {}
+  constructor(private readonly db: DrizzleClient) {}
 
   async listForAccount(socialAccountId: string) {
     return this.db

@@ -8,6 +8,13 @@
       "when": 1788740956167,
       "tag": "0000_legal_jack_flag",
       "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "7",
+      "when": 1788794729172,
+      "tag": "0001_lying_pyro",
+      "breakpoints": true
     }
   ]
 }

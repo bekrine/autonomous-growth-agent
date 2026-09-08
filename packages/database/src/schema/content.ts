@@ -1,7 +1,8 @@
 import { relations } from "drizzle-orm";
-import { index, integer, jsonb, pgTable, text, timestamp, uuid } from "drizzle-orm/pg-core";
+import { index, integer, jsonb, numeric, pgTable, text, timestamp, uuid } from "drizzle-orm/pg-core";
 import { agentProfiles, strategyVersions } from "./agent.js";
 import { socialAccounts } from "./core.js";
+import { agentRuns } from "./runtime.js";
 import { contentIdeaStatusEnum, contentPostStatusEnum, publishingJobStatusEnum } from "./enums.js";
 
 export const contentIdeas = pgTable(
@@ -14,13 +15,26 @@ export const contentIdeas = pgTable(
     strategyVersionId: uuid("strategy_version_id").references(() => strategyVersions.id, {
       onDelete: "set null",
     }),
+    // Which agent run produced this idea — traceability + idempotency check.
+    agentRunId: uuid("agent_run_id").references(() => agentRuns.id, { onDelete: "set null" }),
     title: text("title").notNull(),
     description: text("description"),
+    // Content-brief fields the ContentPlannerAgent produces (Phase 2). All
+    // nullable because pre-Phase-2 rows and human-authored ideas won't have them.
+    format: text("format"),
+    contentPillar: text("content_pillar"),
+    targetAudience: text("target_audience"),
+    hook: text("hook"),
+    objective: text("objective"),
+    priorityScore: numeric("priority_score"),
     status: contentIdeaStatusEnum("status").notNull().default("proposed"),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
   },
-  (table) => [index("content_ideas_agent_profile_id_idx").on(table.agentProfileId)],
+  (table) => [
+    index("content_ideas_agent_profile_id_idx").on(table.agentProfileId),
+    index("content_ideas_agent_run_id_idx").on(table.agentRunId),
+  ],
 );
 
 // Generic, platform-agnostic post record. Platform-specific rendering

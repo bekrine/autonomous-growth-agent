@@ -1,7 +1,6 @@
 import { Router } from "express";
 import { z } from "zod";
 import type { AppDependencies } from "../config.js";
-import { AgentRunService } from "../services/agent-run.service.js";
 import { asyncHandler } from "../middleware/async-handler.js";
 import { validate } from "../middleware/validate.js";
 
@@ -15,10 +14,7 @@ const runIdParamsSchema = z.object({
 
 export function agentRunsRoutes(deps: AppDependencies): Router {
   const router = Router();
-  const service = new AgentRunService(
-    deps.agentSystem.orchestrator,
-    deps.agentSystem.repositories.agentRunRepository,
-  );
+  const service = deps.agentSystem.agentRunService;
 
   router.get(
     "/agent/runs",
@@ -32,7 +28,16 @@ export function agentRunsRoutes(deps: AppDependencies): Router {
     validate("body", createRunSchema),
     asyncHandler(async (req, res) => {
       const outcome = await service.startRun(req.body.accountId);
-      res.status(202).json(outcome);
+      res.status(200).json(outcome);
+    }),
+  );
+
+  router.post(
+    "/agent/runs/queue",
+    validate("body", createRunSchema),
+    asyncHandler(async (req, res) => {
+      const { jobId } = await deps.agentQueueProducer.enqueueRun(req.body.accountId);
+      res.status(202).json({ status: "queued", jobId });
     }),
   );
 

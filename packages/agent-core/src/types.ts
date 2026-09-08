@@ -2,6 +2,7 @@ import type { Logger } from "@agent/shared";
 import type { LLMProvider } from "@agent/llm";
 import type { AgentName } from "@agent/shared";
 import type { ToolRouter } from "./tool-router.js";
+import type { AgentContextData } from "./context/types.js";
 
 /** One structured decision an agent made. No chain-of-thought — a concise label + reason. */
 export interface AgentDecisionInput {
@@ -25,7 +26,15 @@ export interface AgentResult {
   data?: Record<string, unknown>;
 }
 
-export interface AgentContext {
+/**
+ * Full per-run context handed to every agent. `AgentContextData` (account,
+ * goal, strategy, recent content/analytics, experiments, prior research,
+ * policy flags) is assembled once by AgentContextLoader before the run
+ * starts; the orchestrator merges it with the run-scoped fields below.
+ * Agents never query a repository themselves — everything they need to
+ * reason about is already here.
+ */
+export interface AgentContext extends AgentContextData {
   runId: string;
   accountId: string;
   logger: Logger;

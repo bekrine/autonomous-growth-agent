@@ -20,6 +20,15 @@ DATABASE_URL=postgresql://agent:agent@localhost:5432/agent_growth \
   npm run db:migrate --workspace=@agent/database
 ```
 
+Optionally seed one realistic dev account (niche, audience, goal) so there's something to
+run agents against immediately — idempotent, safe to re-run, never invoked automatically:
+
+```bash
+DATABASE_URL=postgresql://agent:agent@localhost:5432/agent_growth \
+REDIS_URL=redis://localhost:6379 \
+  npm run db:seed --workspace=@agent/database
+```
+
 Then:
 
 ```bash
@@ -47,26 +56,38 @@ npm run dev:analytics-worker
 ## Verifying the whole path
 
 ```bash
-# 1. create an account
+# 1. create an account — niche is what makes it immediately runnable (creates an agent_profile)
 curl -s -X POST http://localhost:4000/api/accounts \
   -H 'Content-Type: application/json' \
-  -d '{"userEmail":"demo@example.com","platform":"instagram","externalAccountId":"ig_demo_1","displayName":"Demo Growth Account"}'
+  -d '{"userEmail":"demo@example.com","platform":"instagram","externalAccountId":"ig_demo_1","displayName":"Demo Growth Account","niche":"AI and developer productivity","targetAudience":"developers","goalTitle":"Grow an educational account","goalMetric":"followers"}'
 # -> { "id": "<accountId>", ... }
 
-# 2. trigger a run
+# 2. trigger a run (synchronous — waits for the full pipeline to finish)
 curl -s -X POST http://localhost:4000/api/agent/runs \
   -H 'Content-Type: application/json' \
   -d '{"accountId":"<accountId>"}'
-# -> { "runId": "<runId>", "status": "completed" }
+# -> { "runId": "<runId>", "status": "completed", "research": [...], "strategy": {...}, "contentIdeas": [...] }
+
+# 2b. or trigger the same run through BullMQ instead
+curl -s -X POST http://localhost:4000/api/agent/runs/queue \
+  -H 'Content-Type: application/json' \
+  -d '{"accountId":"<accountId>"}'
+# -> { "status": "queued", "jobId": "..." } — agent-worker logs will show it complete
 
 # 3. inspect what happened
 curl -s http://localhost:4000/api/agent/runs/<runId> | python3 -m json.tool
 ```
 
-You should see three decisions (`research_completed`, `strategy_proposed`,
-`content_idea_planned`) and their corresponding actions, all persisted in Postgres. The
-same run also shows up in the dashboard's Agent Activity view (currently backed by mock
-data in `apps/web/src/lib/mock-data.ts` — wiring it to this endpoint is the next step).
+You should see three decisions (`research_topics_discovered`, `strategy_updated` or
+`strategy_unchanged`, `content_ideas_planned`) and their corresponding actions, plus the
+`research`/`strategy`/`contentIdeas` rows they produced, all persisted in Postgres. The
+same run is visible in the dashboard's **Agent Activity** page — pick the account and
+click **Start Agent Run**; the panel calls the real API, no mock data involved.
+
+Without `OPENAI_API_KEY` set, every field the LLM would normally fill in reads `"mock
+value"` — that's `MockLLMProvider` faking a schema-valid response so the whole pipeline
+(context loading → prompts → validation → persistence) is exercisable without an API key.
+Set `OPENAI_API_KEY` (and optionally `LLM_MODEL`) in `.env` to see real reasoning instead.
 
 ## Tests
 
@@ -84,6 +105,10 @@ on a bare checkout with no infra running.
 See `.env.example`. Every process validates its environment at startup via
 `loadEnv()` in `packages/shared/src/env.ts` and fails fast with a readable list of
 missing/invalid variables rather than failing deep in an unrelated code path later.
+
+`LLM_MODEL` (default `gpt-4o-mini`) and `LLM_MAX_RETRIES` (default `3`) configure
+`OpenAIProvider` — used for both `generateText` and `generateStructured`. Neither is
+hard-coded; both flow through `createLLMProvider()` in `packages/llm`.
 
 ## Kill switch
 

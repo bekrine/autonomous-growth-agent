@@ -5,3 +5,7 @@ export * from "./orchestrator.js";
 export * from "./factory.js";
 export * from "./agents/index.js";
 export * from "./tools/index.js";
+export * from "./context/index.js";
+export * from "./research/index.js";
+export * from "./prompts/index.js";
+export * from "./agent-run-service.js";

@@ -20,7 +20,8 @@
     "@agent/database": "*",
     "@agent/llm": "*",
     "@agent/social-platforms": "*",
-    "@agent/policies": "*"
+    "@agent/policies": "*",
+    "zod": "^3.24.1"
   },
   "devDependencies": {
     "typescript": "^5.7.2",

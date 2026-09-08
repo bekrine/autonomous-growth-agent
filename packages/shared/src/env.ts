@@ -12,6 +12,8 @@ const envSchema = z.object({
   REDIS_URL: z.string().min(1, "REDIS_URL is required"),
 
   OPENAI_API_KEY: z.string().optional().default(""),
+  LLM_MODEL: z.string().optional().default("gpt-4o-mini"),
+  LLM_MAX_RETRIES: z.coerce.number().int().min(0).max(10).optional().default(3),
 
   INSTAGRAM_CLIENT_ID: z.string().optional().default(""),
   INSTAGRAM_CLIENT_SECRET: z.string().optional().default(""),

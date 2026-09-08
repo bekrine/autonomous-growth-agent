@@ -20,7 +20,8 @@
     "format": "prettier --write .",
     "typecheck": "tsc -b --pretty",
     "db:generate": "npm run db:generate --workspace=@agent/database",
-    "db:migrate": "npm run db:migrate --workspace=@agent/database"
+    "db:migrate": "npm run db:migrate --workspace=@agent/database",
+    "db:seed": "npm run db:seed --workspace=@agent/database"
   },
   "devDependencies": {
     "@types/node": "^22.10.0",

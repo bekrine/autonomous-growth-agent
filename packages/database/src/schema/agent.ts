@@ -2,6 +2,7 @@ import { relations } from "drizzle-orm";
 import { index, integer, jsonb, numeric, pgTable, text, timestamp, uuid } from "drizzle-orm/pg-core";
 import { socialAccounts } from "./core.js";
 import { goalStatusEnum } from "./enums.js";
+import { agentRuns } from "./runtime.js";
 
 export const agentProfiles = pgTable(
   "agent_profiles",
@@ -65,11 +66,15 @@ export const strategyVersions = pgTable(
     summary: text("summary").notNull(),
     content: jsonb("content").notNull(),
     createdBy: text("created_by").notNull(),
+    // Which agent run produced this version, if any — traceability + the
+    // idempotency check that stops a retried run from creating a duplicate.
+    agentRunId: uuid("agent_run_id").references(() => agentRuns.id, { onDelete: "set null" }),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (table) => [
     index("strategy_versions_strategy_id_idx").on(table.strategyId),
     index("strategy_versions_strategy_id_version_idx").on(table.strategyId, table.versionNumber),
+    index("strategy_versions_agent_run_id_idx").on(table.agentRunId),
   ],
 );
 

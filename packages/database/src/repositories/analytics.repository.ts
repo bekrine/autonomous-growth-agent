@@ -1,9 +1,9 @@
 import { desc, eq } from "drizzle-orm";
-import type { Database } from "../client.js";
+import type { DrizzleClient } from "../client.js";
 import { analyticsSnapshots } from "../schema/index.js";
 
 export class AnalyticsRepository {
-  constructor(private readonly db: Database) {}
+  constructor(private readonly db: DrizzleClient) {}
 
   async listForAccount(socialAccountId: string, limit = 100) {
     return this.db
