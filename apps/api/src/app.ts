@@ -6,6 +6,7 @@ import { healthRoutes } from "./routes/health.routes.js";
 import { accountsRoutes } from "./routes/accounts.routes.js";
 import { strategiesRoutes } from "./routes/strategies.routes.js";
 import { contentRoutes } from "./routes/content.routes.js";
+import { contentGenerationRoutes } from "./routes/content-generation.routes.js";
 import { analyticsRoutes } from "./routes/analytics.routes.js";
 import { experimentsRoutes } from "./routes/experiments.routes.js";
 import { agentRunsRoutes } from "./routes/agent-runs.routes.js";
@@ -16,11 +17,16 @@ export function createApp(deps: AppDependencies): Express {
 
   app.use(cors());
   app.use(express.json());
+  // Local-disk asset storage (packages/media's LocalObjectStorage) served
+  // statically — swap for a real STORAGE_* provider's CDN URL later
+  // without any route changes on the consuming side.
+  app.use("/media", express.static(deps.env.STORAGE_LOCAL_DIR));
 
   app.use("/api", healthRoutes(deps));
   app.use("/api", accountsRoutes(deps));
   app.use("/api", strategiesRoutes(deps));
   app.use("/api", contentRoutes(deps));
+  app.use("/api", contentGenerationRoutes(deps));
   app.use("/api", analyticsRoutes(deps));
   app.use("/api", experimentsRoutes(deps));
   app.use("/api", agentRunsRoutes(deps));

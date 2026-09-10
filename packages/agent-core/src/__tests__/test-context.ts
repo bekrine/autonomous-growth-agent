@@ -30,6 +30,8 @@ export function createTestContext(overrides: Partial<AgentContext> = {}, llm: LL
     research: [],
     policies: { autonomyEnabled: true, contentApprovalRequired: true },
     agentProfileId: "profile-1",
+    targetContentIdea: null,
+    regenerationFeedback: [],
     ...overrides,
   };
 }

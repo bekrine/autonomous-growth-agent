@@ -9,4 +9,6 @@ build/
 coverage/
 pgdata/
 redisdata/
+# Locally generated media assets (LocalObjectStorage / STORAGE_LOCAL_DIR).
+storage/
 npm-debug.log*

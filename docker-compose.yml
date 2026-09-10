@@ -39,8 +39,13 @@ services:
       DATABASE_URL: postgresql://agent:agent@postgres:5432/agent_growth
       REDIS_URL: redis://redis:6379
       PORT: 4000
+      STORAGE_LOCAL_DIR: /app/storage
     ports:
       - "4000:4000"
+    volumes:
+      # Generated media must survive restarts, and the worker writes assets
+      # the API serves at /media — so both mount the same volume.
+      - mediadata:/app/storage
     depends_on:
       postgres:
         condition: service_healthy
@@ -76,6 +81,11 @@ services:
     environment:
       DATABASE_URL: postgresql://agent:agent@postgres:5432/agent_growth
       REDIS_URL: redis://redis:6379
+      STORAGE_LOCAL_DIR: /app/storage
+    volumes:
+      # Shares the API's media volume: this worker writes generated assets,
+      # the API serves them at /media.
+      - mediadata:/app/storage
     depends_on:
       postgres:
         condition: service_healthy
@@ -117,3 +127,4 @@ services:
 volumes:
   pgdata:
   redisdata:
+  mediadata:

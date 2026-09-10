@@ -84,10 +84,54 @@ You should see three decisions (`research_topics_discovered`, `strategy_updated`
 same run is visible in the dashboard's **Agent Activity** page — pick the account and
 click **Start Agent Run**; the panel calls the real API, no mock data involved.
 
-Without `OPENAI_API_KEY` set, every field the LLM would normally fill in reads `"mock
-value"` — that's `MockLLMProvider` faking a schema-valid response so the whole pipeline
-(context loading → prompts → validation → persistence) is exercisable without an API key.
-Set `OPENAI_API_KEY` (and optionally `LLM_MODEL`) in `.env` to see real reasoning instead.
+With no LLM key set, every field the model would normally fill in reads `"mock value"` —
+that's `MockLLMProvider` faking a schema-valid response so the whole pipeline (context
+loading → prompts → validation → persistence) is exercisable for free. For real reasoning,
+set **either** `HF_TOKEN` (Hugging Face, free tier — takes priority) or `OPENAI_API_KEY`.
+
+## Generating content (Phase 3)
+
+Continuing from the run above — pick one of the `contentIdeas[].id` values it returned:
+
+```bash
+# Synchronous: runs ContentCreator → media → Reviewer and waits for the verdict.
+curl -s -X POST http://localhost:4000/api/content/<contentIdeaId>/generate | python3 -m json.tool
+# -> { "contentId": "...", "status": "ready_for_publishing", "generationVersion": 1,
+#      "generation": { "format": "reel", "hook": "...", "script": [...], "caption": "...",
+#                      "assets": [...], "review": { "approved": true, "score": 0.95 } } }
+
+# Or queue it (agent-worker picks it up; same AgentRunService either way):
+curl -s -X POST http://localhost:4000/api/content/<contentIdeaId>/generate/queue
+
+# Read current state and the full version history:
+curl -s http://localhost:4000/api/content/<contentId>          | python3 -m json.tool
+curl -s http://localhost:4000/api/content/<contentId>/versions | python3 -m json.tool
+```
+
+The same flow is driven from the dashboard's **Content** page: *1. Plan content ideas* →
+pick an idea → *2. Generate content*, then inspect the generated copy, media, caption/CTA/
+alt text, review scores and generation history.
+
+A rejected review triggers automatic regeneration with the reviewer's `recommendedChanges`
+folded into the next prompt, up to `MAX_CONTENT_GENERATION_ATTEMPTS` (default 3), after
+which the content lands in `review_failed` for a human to look at. Every attempt is kept as
+its own `content_generations` row — nothing is overwritten.
+
+### Real image generation
+
+Off by default, because Hugging Face's free tier no longer serves text-to-image (their
+`hf-inference` provider returns 410 for these models), so it needs Inference Provider
+credits. Left off, `MockImageGenerator` produces a placeholder SVG explicitly labeled
+"MOCK IMAGE (not AI-generated)". To enable:
+
+```env
+IMAGE_GENERATION_ENABLED=true
+HF_IMAGE_PROVIDER=fal-ai
+HF_IMAGE_MODEL=black-forest-labs/FLUX.1-schnell
+```
+
+A media failure never fails the whole generation — the asset row records `failed` and the
+Reviewer still evaluates the copy.
 
 ## Tests
 

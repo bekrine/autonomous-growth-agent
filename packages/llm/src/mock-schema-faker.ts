@@ -1,4 +1,18 @@
-import { ZodArray, ZodDefault, ZodEnum, ZodLiteral, ZodNullable, ZodNumber, ZodObject, ZodOptional, ZodRecord, ZodString, ZodType, ZodUnion } from "zod";
+import {
+  ZodArray,
+  ZodDefault,
+  ZodDiscriminatedUnion,
+  ZodEnum,
+  ZodLiteral,
+  ZodNullable,
+  ZodNumber,
+  ZodObject,
+  ZodOptional,
+  ZodRecord,
+  ZodString,
+  ZodType,
+  ZodUnion,
+} from "zod";
 
 /**
  * Generates a schema-valid fake value by introspecting a Zod schema. Used
@@ -36,6 +50,9 @@ function buildValue(schema: ZodType): unknown {
   }
   if (schema instanceof ZodLiteral) {
     return schema.value;
+  }
+  if (schema instanceof ZodDiscriminatedUnion) {
+    return buildValue(schema.options[0]);
   }
   if (schema instanceof ZodUnion) {
     return buildValue(schema.options[0]);

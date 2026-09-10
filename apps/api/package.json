@@ -17,6 +17,7 @@
     "@agent/social-platforms": "*",
     "@agent/policies": "*",
     "@agent/agent-core": "*",
+    "@agent/media": "*",
     "express": "^4.21.2",
     "cors": "^2.8.5",
     "zod": "^3.24.1",

@@ -3,12 +3,19 @@
 A production-oriented foundation for an autonomous AI agent that operates social-media
 accounts and continuously improves their growth. This repository is **not** the full
 autonomous system yet — Phase 1 built the scaffolding (monorepo, database, queues, API,
-policy/kill-switch layer, dashboard shell) and Phase 2 made the first three agents
-actually reason with an LLM and produce real, persisted output:
+policy/kill-switch layer, dashboard shell), Phase 2 made the planning agents reason with a
+real LLM, and Phase 3 turns their plans into reviewed, ready-to-publish content:
 
 ```
-Account → ResearchAgent → StrategyAgent → ContentPlannerAgent → persisted results → API/dashboard
+Account → ResearchAgent → StrategyAgent → ContentPlannerAgent → content ideas
+                                                                     ↓
+   ContentCreatorAgent → media generation → ReviewerAgent → READY_FOR_PUBLISHING
+                              ↑                    ↓
+                              └──── regenerate ◄───┘  (bounded, max 3 attempts)
 ```
+
+Nothing publishes yet — `READY_FOR_PUBLISHING` is deliberately the terminal state.
+Publishing to Instagram/Facebook is Phase 4.
 
 The end-state feedback loop this foundation is built to support:
 
@@ -31,6 +38,9 @@ See [`docs/architecture.md`](docs/architecture.md) for the full system design,
 - **LLM output**: every agent decision is a Zod-validated structured JSON response
   (`LLMProvider.generateStructured`), retried on invalid output — never free-form text
   parsed with regex.
+- **Providers**: text via Hugging Face (free tier) or OpenAI; images via Hugging Face;
+  assets via local-disk or (later) S3/R2 — all behind interfaces, all defaulting to mocks
+  so the system runs with zero API keys.
 - **Infra**: Docker, Docker Compose, npm workspaces monorepo
 
 ## Repository layout
@@ -109,11 +119,28 @@ applying migrations, and the full verification walkthrough.
 
 ## Status
 
-**Phase 1** (foundation) and **Phase 2** (real agent execution) are complete. ResearchAgent,
-StrategyAgent and ContentPlannerAgent reason over real account context with
-`LLMProvider.generateStructured`, and their output (research topics, strategy versions,
-content ideas, decisions, actions) is transactionally persisted and idempotent under
-retry. ContentCreator, Reviewer, Analytics, Experiment and Community agents remain typed
-skeletons. Social platform adapters, real research/trend sources, and media generation are
-stubs by design — see [`docs/social-platforms.md`](docs/social-platforms.md) and
-[`docs/agents.md`](docs/agents.md) for exactly what plugs in where.
+**Phases 1–3 are complete.**
+
+- **Phase 1** — foundation: monorepo, schema, queues, API, policy layer, dashboard shell.
+- **Phase 2** — ResearchAgent, StrategyAgent and ContentPlannerAgent reason over real
+  account context with `LLMProvider.generateStructured`; research topics, strategy versions
+  and content ideas are transactionally persisted and idempotent under retry.
+- **Phase 3** — ContentCreatorAgent and ReviewerAgent turn a content idea into a reviewed,
+  versioned content package (format-specific: reel script / carousel slides / image copy /
+  text body, plus caption, CTA, keywords, alt text and a generated cover image), looping
+  through bounded regeneration until approved. Terminal state: `READY_FOR_PUBLISHING`.
+
+Still typed skeletons: `AnalyticsAgent`, `ExperimentAgent`, `CommunityAgent`.
+Still stubs by design: social platform adapters, real research/trend sources, video
+generation. **Publishing is intentionally not implemented** — see
+[`docs/architecture.md`](docs/architecture.md) for exactly where Phase 4 plugs in.
+
+### Known limitations
+
+- Hugging Face's free tier no longer serves text-to-image, so real image generation
+  (`IMAGE_GENERATION_ENABLED=true`) requires Inference Provider credits. Left off, the
+  pipeline uses `MockImageGenerator` — fully functional and clearly labeled as simulated.
+- Generated assets are written to local disk; `STORAGE_*` is reserved for a real
+  object-storage provider.
+- Rate/cost limiters are in-memory, so they're per-process — move the counters to Redis
+  before running multiple API/worker instances.

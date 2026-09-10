@@ -4,6 +4,7 @@ import { KillSwitchStore } from "../kill-switch.js";
 import { KillSwitchPolicy } from "../policies/kill-switch-policy.js";
 import { ContentApprovalPolicy } from "../policies/content-approval-policy.js";
 import { HumanApprovalPolicy } from "../policies/human-approval-policy.js";
+import { DailyGenerationLimitPolicy } from "../policies/daily-generation-limit-policy.js";
 
 describe("PolicyEngine", () => {
   it("allows when every policy allows", async () => {
@@ -58,5 +59,21 @@ describe("PolicyEngine", () => {
     });
     expect(denied.allowed).toBe(false);
     expect(allowed.allowed).toBe(true);
+  });
+
+  it("caps daily media generation independently of other action types", async () => {
+    const policy = new DailyGenerationLimitPolicy(2);
+    const engine = new PolicyEngine([policy]);
+    const call = () => engine.evaluate({ accountId: "acc-1", actionType: "generateImage", payload: {} });
+
+    expect((await call()).allowed).toBe(true);
+    expect((await call()).allowed).toBe(true);
+    const third = await call();
+    expect(third.allowed).toBe(false);
+    expect(third.reason).toContain("daily-generation-limit");
+
+    // Unrelated action types are never limited by this policy.
+    const other = await engine.evaluate({ accountId: "acc-1", actionType: "publish_post", payload: {} });
+    expect(other.allowed).toBe(true);
   });
 });

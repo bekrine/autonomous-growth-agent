@@ -43,15 +43,19 @@ export const contentPosts = pgTable(
   "content_posts",
   {
     id: uuid("id").primaryKey().defaultRandom(),
-    contentIdeaId: uuid("content_idea_id").references(() => contentIdeas.id, {
-      onDelete: "set null",
-    }),
+    // Unique (Postgres allows multiple NULLs) so find-or-create-post-for-idea stays a single idempotent lookup.
+    contentIdeaId: uuid("content_idea_id")
+      .unique()
+      .references(() => contentIdeas.id, { onDelete: "set null" }),
     socialAccountId: uuid("social_account_id")
       .notNull()
       .references(() => socialAccounts.id, { onDelete: "cascade" }),
     caption: text("caption"),
     mediaUrls: jsonb("media_urls").notNull().default([]),
     status: contentPostStatusEnum("status").notNull().default("draft"),
+    // Denormalized for cheap reads; content_generations is the source of truth for version history.
+    currentGenerationVersion: integer("current_generation_version").notNull().default(0),
+    generationAttempts: integer("generation_attempts").notNull().default(0),
     scheduledAt: timestamp("scheduled_at", { withTimezone: true }),
     publishedAt: timestamp("published_at", { withTimezone: true }),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),

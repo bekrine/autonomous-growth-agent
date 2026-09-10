@@ -34,6 +34,17 @@ export interface AgentResult {
  * Agents never query a repository themselves — everything they need to
  * reason about is already here.
  */
+/** The specific content idea a content-generation run (ContentCreator -> Reviewer) is producing content for. */
+export interface TargetContentIdeaContext {
+  id: string;
+  title: string;
+  format: string | null;
+  contentPillar: string | null;
+  targetAudience: string | null;
+  hook: string | null;
+  objective: string | null;
+}
+
 export interface AgentContext extends AgentContextData {
   runId: string;
   accountId: string;
@@ -42,6 +53,10 @@ export interface AgentContext extends AgentContextData {
   tools: ToolRouter;
   /** Results already produced earlier in this run, keyed by agent name. */
   previousResults: Partial<Record<AgentName, AgentResult>>;
+  /** Set only during content generation (ContentCreatorAgent/ReviewerAgent); null during an account-level Research/Strategy/ContentPlanner run. */
+  targetContentIdea: TargetContentIdeaContext | null;
+  /** recommendedChanges from the previous rejected review, if this is a regeneration attempt. */
+  regenerationFeedback: string[];
 }
 
 /**

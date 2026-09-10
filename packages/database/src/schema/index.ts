@@ -5,3 +5,4 @@ export * from "./content.js";
 export * from "./analytics.js";
 export * from "./runtime.js";
 export * from "./research.js";
+export * from "./content-generation.js";

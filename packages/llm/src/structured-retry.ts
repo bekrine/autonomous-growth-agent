@@ -12,6 +12,13 @@ export interface StructuredRetryOptions<T> {
    * fold into the next request so the model can self-correct.
    */
   generate: (feedback?: string) => Promise<string>;
+  /**
+   * Reports why an attempt failed. Receives the schema-violation summary
+   * (never the model's raw output) so a persistently-failing prompt/schema
+   * mismatch is diagnosable from logs instead of surfacing as an opaque
+   * "failed validation after N attempts".
+   */
+  onAttemptFailed?: (info: { attempt: number; kind: FailureKind; message: string }) => void;
 }
 
 type FailureKind = "request" | "parse" | "validation";
@@ -37,6 +44,11 @@ export async function generateStructuredWithRetry<T>(options: StructuredRetryOpt
       lastKind = "request";
       lastError = error;
       feedback = undefined;
+      options.onAttemptFailed?.({
+        attempt,
+        kind: "request",
+        message: error instanceof Error ? error.message : String(error),
+      });
       continue;
     }
 
@@ -47,6 +59,11 @@ export async function generateStructuredWithRetry<T>(options: StructuredRetryOpt
       lastKind = "parse";
       lastError = error;
       feedback = "Your previous response was not valid JSON. Respond with ONLY valid JSON, no prose, no markdown fences.";
+      options.onAttemptFailed?.({
+        attempt,
+        kind: "parse",
+        message: error instanceof Error ? error.message : String(error),
+      });
       continue;
     }
 
@@ -55,7 +72,12 @@ export async function generateStructuredWithRetry<T>(options: StructuredRetryOpt
 
     lastKind = "validation";
     lastError = result.error;
-    feedback = `Your previous JSON response did not match the required schema: ${result.error.message}. Respond again with ONLY corrected JSON.`;
+    // Only the field paths + violation reasons — never the model's raw output.
+    const summary = result.error.issues
+      .map((issue) => `${issue.path.join(".") || "(root)"}: ${issue.message}`)
+      .join("; ");
+    feedback = `Your previous JSON response did not match the required schema: ${summary}. Respond again with ONLY corrected JSON.`;
+    options.onAttemptFailed?.({ attempt, kind: "validation", message: summary });
   }
 
   if (lastKind === "request") {

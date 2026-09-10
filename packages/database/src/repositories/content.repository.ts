@@ -1,6 +1,9 @@
-import { desc, eq } from "drizzle-orm";
+import { desc, eq, sql } from "drizzle-orm";
 import type { DrizzleClient } from "../client.js";
 import { contentIdeas, contentPosts } from "../schema/index.js";
+import type { contentPostStatusEnum } from "../schema/enums.js";
+
+type ContentPostStatus = (typeof contentPostStatusEnum.enumValues)[number];
 
 export interface CreateContentIdeaInput {
   agentProfileId: string;
@@ -66,10 +69,54 @@ export class ContentRepository {
     contentIdeaId?: string;
     caption?: string;
     mediaUrls?: string[];
+    status?: ContentPostStatus;
   }) {
     const [row] = await this.db
       .insert(contentPosts)
       .values({ ...input, mediaUrls: input.mediaUrls ?? [] })
+      .returning();
+    return row;
+  }
+
+  async findIdeaById(id: string) {
+    const [row] = await this.db.select().from(contentIdeas).where(eq(contentIdeas.id, id));
+    return row ?? null;
+  }
+
+  async findPostById(id: string) {
+    const [row] = await this.db.select().from(contentPosts).where(eq(contentPosts.id, id));
+    return row ?? null;
+  }
+
+  async findPostByIdeaId(contentIdeaId: string) {
+    const [row] = await this.db.select().from(contentPosts).where(eq(contentPosts.contentIdeaId, contentIdeaId));
+    return row ?? null;
+  }
+
+  async updatePostStatus(id: string, status: ContentPostStatus) {
+    const [row] = await this.db
+      .update(contentPosts)
+      .set({ status, updatedAt: new Date() })
+      .where(eq(contentPosts.id, id))
+      .returning();
+    return row;
+  }
+
+  /** Atomic increment — safe to call concurrently without a read-modify-write race. */
+  async incrementGenerationAttempts(id: string) {
+    const [row] = await this.db
+      .update(contentPosts)
+      .set({ generationAttempts: sql`${contentPosts.generationAttempts} + 1`, updatedAt: new Date() })
+      .where(eq(contentPosts.id, id))
+      .returning();
+    return row;
+  }
+
+  async setCurrentGenerationVersion(id: string, versionNumber: number) {
+    const [row] = await this.db
+      .update(contentPosts)
+      .set({ currentGenerationVersion: versionNumber, updatedAt: new Date() })
+      .where(eq(contentPosts.id, id))
       .returning();
     return row;
   }

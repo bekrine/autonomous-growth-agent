@@ -1,13 +1,15 @@
 import { Worker } from "bullmq";
 import { createDatabase, closeDatabase, OutboxRepository } from "@agent/database";
 import { createLLMProvider } from "@agent/llm";
+import { createImageGenerator, createObjectStorage } from "@agent/media";
 import { buildAgentSystem } from "@agent/agent-core";
 import { createLogger, createRedisConnection, loadEnv } from "@agent/shared";
 import { createPlaceholderProcessor } from "./processors.js";
 import { createAgentRunProcessor } from "./agent-run-processor.js";
+import { createContentGenerationProcessor } from "./content-generation-processor.js";
 import { OutboxPublisher } from "./outbox-publisher.js";
 
-const PLACEHOLDER_QUEUES = ["research", "strategy", "content", "experiments"] as const;
+const PLACEHOLDER_QUEUES = ["research", "strategy", "experiments"] as const;
 
 async function main() {
   const env = loadEnv();
@@ -15,12 +17,29 @@ async function main() {
   const connection = createRedisConnection(env.REDIS_URL);
   const db = createDatabase(env.DATABASE_URL);
   const llm = createLLMProvider({
+    huggingFaceApiKey: env.HF_TOKEN,
+    huggingFaceModel: env.HF_TEXT_MODEL,
     openaiApiKey: env.OPENAI_API_KEY,
     model: env.LLM_MODEL,
     maxRetries: env.LLM_MAX_RETRIES,
     logger,
   });
-  const agentSystem = buildAgentSystem({ db, llm, logger });
+  const imageGenerator = createImageGenerator({
+    huggingFaceApiKey: env.HF_TOKEN,
+    huggingFaceModel: env.HF_IMAGE_MODEL,
+    huggingFaceProvider: env.HF_IMAGE_PROVIDER,
+    imageGenerationEnabled: env.IMAGE_GENERATION_ENABLED,
+  });
+  const objectStorage = createObjectStorage({ localDir: env.STORAGE_LOCAL_DIR, publicBaseUrl: env.PUBLIC_MEDIA_BASE_URL });
+  const agentSystem = buildAgentSystem({
+    db,
+    llm,
+    logger,
+    imageGenerator,
+    objectStorage,
+    maxRegenerationAttempts: env.MAX_CONTENT_GENERATION_ATTEMPTS,
+    maxDailyMediaGenerations: env.MAX_DAILY_MEDIA_GENERATIONS,
+  });
 
   const outboxPublisher = new OutboxPublisher(new OutboxRepository(db), connection, logger);
   outboxPublisher.start();
@@ -35,14 +54,23 @@ async function main() {
     { connection },
   );
 
-  const workers = [...placeholderWorkers, agentRunWorker];
+  // The "content" queue is real (not a placeholder): its only job type
+  // today, "generate-content", drives the Phase 3 ContentCreator -> media
+  // -> Reviewer pipeline via the same AgentRunService the API uses.
+  const contentWorker = new Worker(
+    "content",
+    createContentGenerationProcessor(agentSystem.agentRunService, logger),
+    { connection },
+  );
+
+  const workers = [...placeholderWorkers, agentRunWorker, contentWorker];
   for (const worker of workers) {
     worker.on("failed", (job, err) => {
       logger.error({ queue: worker.name, jobId: job?.id, err: err.message }, "worker.job_failed");
     });
   }
 
-  logger.info({ queues: [...PLACEHOLDER_QUEUES, "agent-run"] }, "agent-worker.started");
+  logger.info({ queues: [...PLACEHOLDER_QUEUES, "agent-run", "content"] }, "agent-worker.started");
 
   async function shutdown(signal: string) {
     logger.info({ signal }, "agent-worker.shutting_down");

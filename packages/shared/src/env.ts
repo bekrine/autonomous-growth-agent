@@ -15,6 +15,20 @@ const envSchema = z.object({
   LLM_MODEL: z.string().optional().default("gpt-4o-mini"),
   LLM_MAX_RETRIES: z.coerce.number().int().min(0).max(10).optional().default(3),
 
+  // Hugging Face Inference Providers — free-tier LLM + image generation.
+  // Takes priority over OPENAI_API_KEY when set (see packages/llm/src/factory.ts).
+  HF_TOKEN: z.string().optional().default(""),
+  HF_TEXT_MODEL: z.string().optional().default("Qwen/Qwen3-4B-Instruct-2507"),
+  HF_IMAGE_MODEL: z.string().optional().default("black-forest-labs/FLUX.1-schnell"),
+  HF_IMAGE_PROVIDER: z.string().optional().default("fal-ai"),
+  // Opt-in because image generation (unlike HF text generation) is not
+  // free — see packages/media/src/factory.ts. Off => MockImageGenerator.
+  IMAGE_GENERATION_ENABLED: z
+    .string()
+    .optional()
+    .default("false")
+    .transform((v) => v === "true"),
+
   INSTAGRAM_CLIENT_ID: z.string().optional().default(""),
   INSTAGRAM_CLIENT_SECRET: z.string().optional().default(""),
 
@@ -25,6 +39,12 @@ const envSchema = z.object({
   STORAGE_BUCKET: z.string().optional().default(""),
   STORAGE_ACCESS_KEY: z.string().optional().default(""),
   STORAGE_SECRET_KEY: z.string().optional().default(""),
+  // Local-disk object storage used until a real STORAGE_* provider is wired in.
+  STORAGE_LOCAL_DIR: z.string().optional().default("./storage"),
+  PUBLIC_MEDIA_BASE_URL: z.string().optional().default("http://localhost:4000/media"),
+
+  MAX_CONTENT_GENERATION_ATTEMPTS: z.coerce.number().int().min(1).max(10).optional().default(3),
+  MAX_DAILY_MEDIA_GENERATIONS: z.coerce.number().int().min(0).optional().default(50),
 
   AUTONOMY_KILL_SWITCH: z
     .string()

@@ -32,6 +32,22 @@ describe("MockLLMProvider", () => {
     expect(result.topics[0].relevanceScore).toBeGreaterThanOrEqual(0);
     expect(result.topics[0].relevanceScore).toBeLessThanOrEqual(1);
   });
+
+  it("fakes a schema-valid response for a discriminated union", async () => {
+    const provider = new MockLLMProvider();
+    const schema = z.discriminatedUnion("kind", [
+      z.object({ kind: z.literal("a"), value: z.string() }),
+      z.object({ kind: z.literal("b"), count: z.number() }),
+    ]);
+    const result = await provider.generateStructured({
+      systemPrompt: "sys",
+      prompt: "user",
+      schema,
+      schemaName: "test",
+    });
+    expect(() => schema.parse(result)).not.toThrow();
+    expect(result.kind).toBe("a");
+  });
 });
 
 describe("createLLMProvider", () => {

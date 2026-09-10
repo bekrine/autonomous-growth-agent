@@ -21,6 +21,7 @@
     "@agent/llm": "*",
     "@agent/social-platforms": "*",
     "@agent/policies": "*",
+    "@agent/media": "*",
     "zod": "^3.24.1"
   },
   "devDependencies": {

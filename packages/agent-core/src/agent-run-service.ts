@@ -1,6 +1,7 @@
 import type {
   AgentProfileRepository,
   AgentRunRepository,
+  ContentGenerationRepository,
   ContentRepository,
   ResearchRepository,
   StrategyRepository,
@@ -14,6 +15,7 @@ export interface AgentRunServiceDeps {
   researchRepository: ResearchRepository;
   strategyRepository: StrategyRepository;
   contentRepository: ContentRepository;
+  contentGenerationRepository: ContentGenerationRepository;
   agentProfileRepository: AgentProfileRepository;
 }
 
@@ -22,10 +24,10 @@ export interface AgentRunServiceDeps {
  * BullMQ agent-run job processor) and the orchestrator:
  *   Controller/Worker -> AgentRunService -> AgentOrchestrator
  * Framework-agnostic on purpose — both apps/api and workers/agent-worker
- * import this exact class (via buildAgentSystem) so "run an agent run" has
- * one implementation regardless of which path triggered it. Owns nothing
- * the orchestrator doesn't already persist — it only re-reads the
- * persisted rows for a run to shape a structured result.
+ * import this exact class (via buildAgentSystem) so "run an agent run" (or
+ * "generate content for an idea") has one implementation regardless of
+ * which path triggered it. Owns nothing the orchestrator doesn't already
+ * persist — it only re-reads the persisted rows to shape a structured result.
  */
 export class AgentRunService {
   constructor(private readonly deps: AgentRunServiceDeps) {}
@@ -60,6 +62,132 @@ export class AgentRunService {
     return { ...response, decisions, actions };
   }
 
+  /** Runs ContentCreator -> media generation -> Reviewer (looped up to the configured max) for one content idea. */
+  async generateContent(accountId: string, contentIdeaId: string) {
+    const outcome = await this.deps.orchestrator.generateContent(accountId, contentIdeaId);
+    return this.buildContentResponse(outcome.contentPostId, outcome.error);
+  }
+
+  /** Resumes/retries a content-generation run for a redelivered queue job. */
+  async resumeContentGeneration(accountId: string, contentIdeaId: string, runId: string) {
+    const outcome = await this.deps.orchestrator.generateContent(accountId, contentIdeaId, { runId });
+    return this.buildContentResponse(outcome.contentPostId, outcome.error);
+  }
+
+  /** Current state of a content post: latest generation, its review, and its assets. */
+  async getContent(contentPostId: string) {
+    return this.buildContentResponse(contentPostId);
+  }
+
+  /** Full version history for a content post — every generation attempt and its review, oldest first. */
+  async getContentVersions(contentPostId: string) {
+    const post = await this.deps.contentRepository.findPostById(contentPostId);
+    if (!post) throw new NotFoundError("ContentPost", contentPostId);
+
+    const generations = await this.deps.contentGenerationRepository.listByPostId(contentPostId);
+    const versions = await Promise.all(
+      generations.map(async (generation) => {
+        const [review, assets] = await Promise.all([
+          this.deps.contentGenerationRepository.findReviewByGenerationId(generation.id),
+          this.deps.contentGenerationRepository.listAssetsByGenerationId(generation.id),
+        ]);
+        return this.toGenerationSnapshot(generation, review, assets);
+      }),
+    );
+
+    return { contentPostId, status: post.status, versions };
+  }
+
+  /** Manually re-runs review evaluation logic is not exposed here — review only happens as part of generation. Kept for API symmetry: returns the current (already-recorded) review for the latest version. */
+  async getLatestReview(contentPostId: string) {
+    const latest = await this.deps.contentGenerationRepository.findLatestByPostId(contentPostId);
+    if (!latest) return null;
+    return this.deps.contentGenerationRepository.findReviewByGenerationId(latest.id);
+  }
+
+  private async buildContentResponse(contentPostId: string, error?: string) {
+    const post = await this.deps.contentRepository.findPostById(contentPostId);
+    if (!post) throw new NotFoundError("ContentPost", contentPostId);
+
+    const latestGeneration = await this.deps.contentGenerationRepository.findLatestByPostId(contentPostId);
+    const [review, assets] = latestGeneration
+      ? await Promise.all([
+          this.deps.contentGenerationRepository.findReviewByGenerationId(latestGeneration.id),
+          this.deps.contentGenerationRepository.listAssetsByGenerationId(latestGeneration.id),
+        ])
+      : [null, []];
+
+    return {
+      contentId: post.id,
+      status: post.status,
+      generationVersion: post.currentGenerationVersion,
+      generationAttempts: post.generationAttempts,
+      generation: latestGeneration ? this.toGenerationSnapshot(latestGeneration, review, assets) : null,
+      error,
+    };
+  }
+
+  private toGenerationSnapshot(
+    generation: {
+      id: string;
+      versionNumber: number;
+      attemptNumber: number;
+      format: string;
+      payload: unknown;
+      status: string;
+      errorMessage: string | null;
+      createdAt: Date;
+    },
+    review: {
+      approved: boolean;
+      score: string;
+      qualityScore: string;
+      brandScore: string;
+      safetyScore: string;
+      issues: unknown;
+      warnings: unknown;
+      recommendedChanges: unknown;
+    } | null,
+    assets: { id: string; assetType: string; url: string | null; provider: string; status: string }[],
+  ) {
+    const payload = (generation.payload ?? {}) as Record<string, unknown>;
+    return {
+      generationId: generation.id,
+      version: generation.versionNumber,
+      attempt: generation.attemptNumber,
+      format: generation.format,
+      status: generation.status,
+      errorMessage: generation.errorMessage,
+      hook: payload.hook as string | undefined,
+      title: payload.title as string | undefined,
+      caption: payload.caption as string | undefined,
+      callToAction: payload.callToAction as string | undefined,
+      altText: payload.altText as string | undefined,
+      visualDirection: (payload as { visualDirection?: string }).visualDirection,
+      headline: (payload as { headline?: string }).headline,
+      supportingText: (payload as { supportingText?: string }).supportingText,
+      script: (payload as { script?: unknown }).script,
+      slides: (payload as { slides?: unknown }).slides,
+      body: (payload as { body?: string }).body,
+      keywords: payload.keywords as string[] | undefined,
+      contentWarnings: payload.contentWarnings as string[] | undefined,
+      assets: assets.map((a) => ({ id: a.id, type: a.assetType, url: a.url, provider: a.provider, status: a.status })),
+      review: review
+        ? {
+            approved: review.approved,
+            score: Number(review.score),
+            qualityScore: Number(review.qualityScore),
+            brandScore: Number(review.brandScore),
+            safetyScore: Number(review.safetyScore),
+            issues: review.issues,
+            warnings: review.warnings,
+            recommendedChanges: review.recommendedChanges,
+          }
+        : null,
+      createdAt: generation.createdAt.toISOString(),
+    };
+  }
+
   private async buildRunResponse(runId: string, status: string, accountId: string) {
     const [research, ideas, versionForRun] = await Promise.all([
       this.deps.researchRepository.listByRunId(runId),
@@ -84,6 +212,7 @@ export class AgentRunService {
       })),
       strategy,
       contentIdeas: ideas.map((i) => ({
+        id: i.id,
         title: i.title,
         format: i.format,
         contentPillar: i.contentPillar,

@@ -24,8 +24,14 @@ function createFakeDeps(overrides: Partial<AppDependencies["agentSystem"]> = {})
     findByAgentProfileId: vi.fn(async () => []),
     latestVersion: vi.fn(async () => null),
   };
-  const contentRepository = { listIdeasByRunId: vi.fn(async () => []) };
-  const agentProfileRepository = { findBySocialAccountId: vi.fn(async () => null) };
+  const contentRepository = { listIdeasByRunId: vi.fn(async () => []), findIdeaById: vi.fn(async () => null) };
+  const contentGenerationRepository = {
+    findLatestByPostId: vi.fn(async () => null),
+    listByPostId: vi.fn(async () => []),
+    findReviewByGenerationId: vi.fn(async () => null),
+    listAssetsByGenerationId: vi.fn(async () => []),
+  };
+  const agentProfileRepository = { findBySocialAccountId: vi.fn(async () => null), findById: vi.fn(async () => null) };
 
   // Real AgentRunService (framework-agnostic) driven by fake repos/orchestrator,
   // exactly as buildAgentSystem constructs it in production.
@@ -41,16 +47,19 @@ function createFakeDeps(overrides: Partial<AppDependencies["agentSystem"]> = {})
     // @ts-expect-error - partial fake repository, sufficient for this test
     contentRepository,
     // @ts-expect-error - partial fake repository, sufficient for this test
+    contentGenerationRepository,
+    // @ts-expect-error - partial fake repository, sufficient for this test
     agentProfileRepository,
   });
 
   return {
-    env: { NODE_ENV: "test" } as AppDependencies["env"],
+    env: { NODE_ENV: "test", STORAGE_LOCAL_DIR: "/tmp" } as AppDependencies["env"],
     logger: createLogger({ name: "test", level: "silent" }),
     db: {} as AppDependencies["db"],
     redis: {} as AppDependencies["redis"],
     llm: { name: "mock", generateText: vi.fn(), generateStructured: vi.fn() },
     agentQueueProducer: { enqueueRun: vi.fn(async () => ({ jobId: "job-1" })), close: vi.fn() } as unknown as AppDependencies["agentQueueProducer"],
+    contentQueueProducer: { enqueueGeneration: vi.fn(async () => ({ jobId: "job-2" })), close: vi.fn() } as unknown as AppDependencies["contentQueueProducer"],
     agentSystem: {
       orchestrator,
       agentRunService,
@@ -64,6 +73,7 @@ function createFakeDeps(overrides: Partial<AppDependencies["agentSystem"]> = {})
         agentRunRepository,
         researchRepository,
         contentRepository,
+        contentGenerationRepository,
       },
       ...overrides,
     } as unknown as AppDependencies["agentSystem"],

@@ -104,7 +104,67 @@ prompt never needs regenerating per account and the dynamic half stays inspectab
   targetAudience, hook, objective, priorityScore) — never finished captions. Recent content
   titles are included in the prompt specifically so the model avoids near-duplicates.
 
-These three run in sequence inside `AgentOrchestrator` (see `packages/agent-core/src/factory.ts`).
+These three run in sequence inside `AgentOrchestrator.executeRun()` (see
+`packages/agent-core/src/factory.ts`).
+
+## Content generation (Phase 3)
+
+Two more agents are functional, but they run in a **separate pipeline**
+(`AgentOrchestrator.generateContent()`), targeting one already-planned content idea rather
+than the whole account:
+
+```
+ContentIdea
+    ↓
+ContentCreatorAgent   → structured, format-specific content package
+    ↓
+Media generation      → generateImage tool (policy-gated) → ObjectStorage
+    ↓
+ReviewerAgent         → approve / reject + actionable recommendedChanges
+    ↓
+approved? → READY_FOR_PUBLISHING   |   rejected → regenerate (max 3) → REVIEW_FAILED
+```
+
+- **ContentCreatorAgent** (`agents/content-creator-agent.ts`) — requires
+  `context.targetContentIdea` (throws `MissingContentGenerationContextError` otherwise, so
+  it can't be silently run as part of an account-level run). Picks a format-specific schema
+  via `normalizeContentFormat` + `CONTENT_SCHEMA_BY_FORMAT` and validates against **only
+  that one schema**, never the whole union — the prompt already states the format, so this
+  keeps generation unambiguous. On a regeneration attempt, `context.regenerationFeedback`
+  carries the previous review's `recommendedChanges` into the prompt.
+- **ReviewerAgent** (`agents/reviewer-agent.ts`) — reads
+  `previousResults.content_creator.data.generatedContent` and scores quality, brand,
+  safety and accuracy, plus duplication and platform-readiness checks
+  (`ReviewResultSchema`). It never rewrites content and is instructed never to invent
+  verification for a claim it can't check against the provided context. The orchestrator —
+  not the agent — decides what happens next based on `approved`.
+
+### Formats
+
+`reel` | `carousel` | `image` | `text`, as a discriminated union on `format`
+(`prompts/content-creator/schema.ts`). Each has its own structured body — reels get
+`script[]` (scene / voiceover / onScreenText), carousels get `slides[]`, images get
+`headline` + `supportingText`, text gets `body` — rather than one giant string, so a
+future platform adapter can transform them safely.
+
+`content_ideas.format` is free text from the planner's LLM output ("short-form video",
+"text post", …), so `normalizeContentFormat` keyword-matches it onto the enum and falls
+back to `image` only when nothing matches.
+
+### Anti-hallucination
+
+The content-creator system prompt forbids inventing statistics or facts not present in the
+supplied context (explicitly: no `"97% of developers..."` unless it's in the given
+research), and requires unsupported claims to be dropped, rewritten as opinion, or listed
+in `contentWarnings`. The reviewer independently checks accuracy and flags claims it cannot
+verify rather than asserting they're true or false.
+
+### Media
+
+Non-`text` formats get one cover image via the `generateImage` tool (policy-gated like
+`publishPost`). A media failure is caught and recorded on the asset row as `failed` — it
+does **not** fail the generation attempt, because the copy is already produced and the
+reviewer can still evaluate it. See `docs/architecture.md` for the provider abstraction.
 
 ## Research provider
 
@@ -125,8 +185,8 @@ researchProvider })` without changing `ResearchAgent` or anything downstream of 
 
 ## Skeletons
 
-`ContentCreatorAgent`, `ReviewerAgent`, `AnalyticsAgent`, `ExperimentAgent`, and
-`CommunityAgent` (in `packages/agent-core/src/agents/skeleton-agents.ts`) all implement
+`AnalyticsAgent`, `ExperimentAgent`, and `CommunityAgent` (in
+`packages/agent-core/src/agents/skeleton-agents.ts`) implement
 `Agent` and record a single `not_implemented` decision. They exist so the orchestrator's
 agent list, the `AgentName` union, and any code that switches on agent name already has a
 stable, typed shape to extend — implementing one is adding logic to its `run()` method,

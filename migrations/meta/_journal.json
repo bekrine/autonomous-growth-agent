@@ -15,6 +15,13 @@
       "when": 1788794729172,
       "tag": "0001_lying_pyro",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1788950016209,
+      "tag": "0002_parallel_logan",
+      "breakpoints": true
     }
   ]
 }

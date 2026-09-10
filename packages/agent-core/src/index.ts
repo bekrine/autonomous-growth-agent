@@ -9,3 +9,4 @@ export * from "./context/index.js";
 export * from "./research/index.js";
 export * from "./prompts/index.js";
 export * from "./agent-run-service.js";
+export * from "./errors.js";

@@ -5,21 +5,49 @@
 Defined once in `packages/shared/src/queues.ts` (`QUEUE_NAMES`) so the API (producer) and
 workers (consumers) can't drift:
 
-- `research`, `strategy`, `content`, `publishing`, `analytics`, `experiments` — per-stage
-  placeholder queues (Phase 1), unused by the Phase 2 agent-run flow directly.
+- `research`, `strategy`, `publishing`, `analytics`, `experiments` — per-stage placeholder
+  queues (Phase 1), unused by the real flows so far.
 - `agent-run` — runs the full Research → Strategy → ContentPlanner pipeline for one
   account, via the exact same `AgentRunService` the API calls synchronously.
+- `content` — **real** (Phase 3). Its `generate-content` job runs
+  ContentCreator → media generation → Reviewer for one content idea.
 
 ## Who processes what
 
 | Worker | Queues |
 |---|---|
-| `workers/agent-worker` | `research`, `strategy`, `content`, `experiments` (placeholders), `agent-run` (real) |
+| `workers/agent-worker` | `research`, `strategy`, `experiments` (placeholders), `agent-run` + `content` (real) |
 | `workers/publishing-worker` | `publishing` |
 | `workers/analytics-worker` | `analytics` |
 
-The four per-stage queues still run placeholder processors (`processors.ts`): they log the
-job and acknowledge it. `agent-run` is fully implemented — see below.
+The remaining per-stage queues still run placeholder processors (`processors.ts`): they log
+the job and acknowledge it. `agent-run` and `content` are fully implemented — see below.
+
+## The `content` queue
+
+`POST /api/content/:ideaId/generate/queue` (`ContentQueueProducer`) adds a
+`generate-content` job with `{ accountId, contentIdeaId }` and returns
+`{ status: "queued", jobId }` immediately, instead of running synchronously like
+`POST /api/content/:ideaId/generate`.
+
+`workers/agent-worker/src/content-generation-processor.ts` consumes it:
+
+```
+BullMQ job { accountId, contentIdeaId, runId? }
+        ↓
+createContentGenerationProcessor (job plumbing only — no business logic)
+        ↓
+AgentRunService.generateContent(accountId, contentIdeaId)
+  or .resumeContentGeneration(accountId, contentIdeaId, runId)
+        ↓
+AgentOrchestrator.generateContent(...)   // ContentCreator → media → Reviewer, with regeneration loop
+```
+
+Same rule as `agent-run`: the processor contains no generation logic, so "generate content
+for an idea" has exactly one implementation regardless of whether the API or the queue
+triggered it. A redelivered job is safe — see the idempotency notes in `docs/database.md`.
+The processor only throws (letting BullMQ retry) on `generation_failed`; `review_failed` is
+a legitimate terminal outcome, not a job failure, so it is not retried.
 
 ## The `agent-run` queue
 

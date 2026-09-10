@@ -36,6 +36,47 @@ allowed to reach into `packages/database` or `packages/social-platforms`. Agents
 `context.llm.generateStructured()` for every decision — never a specific SDK, and never
 free-form text parsed with regex.
 
+## Content generation pipeline (Phase 3)
+
+A second pipeline runs against a single planned content idea rather than the whole account:
+
+```
+Content Planner  (Phase 2, produces content_ideas)
+      ↓
+Content Idea
+      ↓
+Content Creator  → structured GeneratedContent (reel | carousel | image | text)
+      ↓
+Media Generator  → generateImage tool → Policy → ImageGenerator → ObjectStorage
+      ↓
+Reviewer         → quality / brand / safety / accuracy / duplication / platform-readiness
+      ↓
+   approved?
+   ├── yes → READY_FOR_PUBLISHING     (terminal for Phase 3 — nothing publishes here)
+   └── no  → regenerate with the reviewer's recommendedChanges
+             (bounded by MAX_CONTENT_GENERATION_ATTEMPTS, default 3) → REVIEW_FAILED
+```
+
+Entry points are `AgentOrchestrator.generateContent()` via `AgentRunService`, reachable
+synchronously (`POST /api/content/:ideaId/generate`) or asynchronously (the `content`
+queue's `generate-content` job) — the same single implementation either way.
+
+Media generation goes through the tool router like any other side-effecting capability, so
+the kill switch and `DailyGenerationLimitPolicy` (cost control) apply to it; nothing
+bypasses the policy layer to call an image provider directly.
+
+### Provider abstractions
+
+| Concern | Interface | Implementations |
+|---|---|---|
+| Text generation | `LLMProvider` (`packages/llm`) | `HuggingFaceProvider`, `OpenAIProvider` (both via `OpenAICompatibleProvider`), `MockLLMProvider` |
+| Image generation | `ImageGenerator` (`packages/media`) | `HuggingFaceImageGenerator`, `MockImageGenerator` |
+| Video generation | `VideoGenerator` (`packages/media`) | `MockVideoGenerator` only — real video is out of scope this phase |
+| Asset storage | `ObjectStorage` (`packages/media`) | `LocalObjectStorage` (served by the API at `/media`); `STORAGE_*` env vars are reserved for a real S3/R2 provider |
+
+Everything is selected by a factory from env config, and every one falls back to a mock so
+the whole pipeline runs with no API keys at all.
+
 ## Why a modular monolith
 
 The API, the three workers, and the agent-core/database/policies/llm/social-platforms
@@ -77,8 +118,9 @@ truth regardless of which path produced the write, and every write is idempotent
 |---|---|
 | Real trend/competitor research | Implement `ResearchProvider` (`packages/agent-core/src/research/`) and pass it to `buildAgentSystem({ researchProvider })` — `ResearchAgent` doesn't change |
 | Real strategy versioning UI | `apps/api/src/services/strategy.service.ts` + `apps/web/src/app/strategy` (data already persisted by the orchestrator) |
-| Image/video generation | `packages/media` (implement `MediaGenerator` for a real provider) |
-| Reviewer approval workflow | `packages/agent-core/src/agents/skeleton-agents.ts` → `ReviewerAgent`, gated by `packages/policies` `ContentApprovalPolicy` |
+| Real video generation | Implement `VideoGenerator` (`packages/media`) + a `generateVideo` tool alongside `generateImage`; the reel format already produces a scene-by-scene script to render from |
+| Real object storage (S3/R2) | Implement `ObjectStorage` (`packages/media/src/storage.ts`) using the reserved `STORAGE_*` env vars — no call site changes |
+| **Publishing (Phase 4)** | `PublishPostTool` + `publishing-worker` already exist; take a `content_posts` row in `ready_for_publishing`, render its `content_generations.payload` for the target platform, and call `SocialPlatform.publishPost`. Nothing in the generation pipeline needs to change |
 | Real Instagram/Facebook calls | `packages/social-platforms/src/adapters/*` (implement `SocialPlatform`, no other file needs to change) |
 | Comment/community management | `CommunityAgent` + `getComments`/`replyToComment` on `SocialPlatform` |
 | A/B experiment analysis | `ExperimentAgent` + `experiments`/`experiment_variants` tables |

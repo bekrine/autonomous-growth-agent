@@ -9,7 +9,8 @@
     { "path": "../database" },
     { "path": "../llm" },
     { "path": "../social-platforms" },
-    { "path": "../policies" }
+    { "path": "../policies" },
+    { "path": "../media" }
   ],
   "include": ["src"]
 }

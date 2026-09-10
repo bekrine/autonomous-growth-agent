@@ -25,3 +25,17 @@ export interface AgentRunJobData {
   /** Present when resuming/retrying a specific run instead of starting a new one. */
   runId?: string;
 }
+
+/**
+ * Runs the full ContentCreator -> media generation -> Reviewer pipeline
+ * (with its internal regeneration loop) for one content idea. Reuses the
+ * existing "content" queue rather than introducing a new one.
+ */
+export const GENERATE_CONTENT_JOB_NAME = "generate-content";
+
+export interface GenerateContentJobData {
+  accountId: string;
+  contentIdeaId: string;
+  /** Present when resuming/retrying a specific content-generation run instead of starting a new one. */
+  runId?: string;
+}

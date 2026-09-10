@@ -17,7 +17,12 @@ async function main() {
     deps.logger.info({ signal }, "api.shutting_down");
 
     server.close(async () => {
-      await Promise.allSettled([closeDatabase(), deps.redis.quit(), deps.agentQueueProducer.close()]);
+      await Promise.allSettled([
+        closeDatabase(),
+        deps.redis.quit(),
+        deps.agentQueueProducer.close(),
+        deps.contentQueueProducer.close(),
+      ]);
       deps.logger.info("api.shutdown_complete");
       process.exit(0);
     });

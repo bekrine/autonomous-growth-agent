@@ -1,5 +1,6 @@
 import {
   AgentRunRepository,
+  ContentGenerationRepository,
   ContentRepository,
   ResearchRepository,
   StrategyRepository,
@@ -9,13 +10,16 @@ import {
 import type { AgentName, Logger } from "@agent/shared";
 import { NotFoundError } from "@agent/shared";
 import type { LLMProvider } from "@agent/llm";
-import type { Agent, AgentContext, AgentResult } from "./types.js";
+import type { Agent, AgentContext, AgentResult, TargetContentIdeaContext } from "./types.js";
 import type { ToolRouter } from "./tool-router.js";
+import type { ToolResult } from "./tool.js";
 import type { AgentContextLoader } from "./context/agent-context-loader.js";
 import type { AgentContextData } from "./context/types.js";
 import type { ResearchResult } from "./prompts/research.prompt.js";
 import type { StrategyResult } from "./prompts/strategy.prompt.js";
 import type { ContentPlanResult } from "./prompts/content-planner.prompt.js";
+import type { GeneratedContent } from "./prompts/content-creator/index.js";
+import type { ReviewResult } from "./prompts/reviewer/index.js";
 
 export interface OrchestratorDependencies {
   db: Database;
@@ -24,14 +28,27 @@ export interface OrchestratorDependencies {
   researchRepository: ResearchRepository;
   strategyRepository: StrategyRepository;
   contentRepository: ContentRepository;
+  contentGenerationRepository: ContentGenerationRepository;
   toolRouter: ToolRouter;
   llm: LLMProvider;
   logger: Logger;
+  /** Hard ceiling on regeneration attempts per content post — never an infinite loop. */
+  maxRegenerationAttempts: number;
+  /** Recorded on the asset row up-front so a failed generation still says which provider was attempted. */
+  imageGeneratorName: string;
 }
 
 export interface AgentRunOutcome {
   runId: string;
   status: "completed" | "failed";
+  error?: string;
+}
+
+export interface ContentGenerationOutcome {
+  runId: string;
+  contentPostId: string;
+  status: "ready_for_publishing" | "review_failed" | "generation_failed";
+  generationVersion: number;
   error?: string;
 }
 
@@ -43,6 +60,10 @@ export interface AgentRunOutcome {
  *   previousResults -> persist decisions/actions/domain rows for each
  *   stage (transactionally, idempotently) -> mark run complete.
  *
+ * Also executes the Phase 3 content-generation pipeline for a single idea
+ * (`generateContent`): ContentCreator -> media generation -> Reviewer,
+ * looped up to `maxRegenerationAttempts` times until approved.
+ *
  * Persistence lives here, not in the agents (rule: agents never touch a
  * repository) and not in the caller (AgentRunService only starts/reads
  * runs) — this is the single place an AgentResult becomes database rows.
@@ -51,6 +72,7 @@ export class AgentOrchestrator {
   constructor(
     private readonly deps: OrchestratorDependencies,
     private readonly agents: Agent[],
+    private readonly contentAgents: { contentCreator: Agent; reviewer: Agent },
   ) {}
 
   /**
@@ -91,6 +113,8 @@ export class AgentOrchestrator {
           llm,
           tools: toolRouter,
           previousResults,
+          targetContentIdea: null,
+          regenerationFeedback: [],
         };
 
         const result = await agent.run(context);
@@ -115,6 +139,131 @@ export class AgentOrchestrator {
       await agentRunRepository.markFinished(run.id, "failed", message);
       logger.error({ runId: run.id, error: message }, "agent_run.failed");
       return { runId: run.id, status: "failed", error: message };
+    }
+  }
+
+  /**
+   * ContentCreator -> media generation -> Reviewer, looped until approved
+   * or `maxRegenerationAttempts` is exhausted. One content_post per idea
+   * (found-or-created); each attempt is its own content_generations
+   * version — never overwritten, always the full history.
+   */
+  async generateContent(
+    accountId: string,
+    contentIdeaId: string,
+    options: { runId?: string } = {},
+  ): Promise<ContentGenerationOutcome> {
+    const { agentRunRepository, contentRepository, contentGenerationRepository, contextLoader, toolRouter, llm, logger, maxRegenerationAttempts } =
+      this.deps;
+
+    const idea = await contentRepository.findIdeaById(contentIdeaId);
+    if (!idea) throw new NotFoundError("ContentIdea", contentIdeaId);
+
+    let post = await contentRepository.findPostByIdeaId(contentIdeaId);
+    if (!post) {
+      post = await contentRepository.createPost({ socialAccountId: accountId, contentIdeaId, status: "brief_created" });
+    }
+
+    if (post.status === "ready_for_publishing" || post.status === "review_failed") {
+      logger.info({ contentPostId: post.id, status: post.status }, "content_generation.already_terminal_skip");
+      return {
+        runId: options.runId ?? "",
+        contentPostId: post.id,
+        status: post.status,
+        generationVersion: post.currentGenerationVersion,
+      };
+    }
+
+    const run = options.runId
+      ? await agentRunRepository.findById(options.runId)
+      : await agentRunRepository.create(accountId);
+    if (!run) throw new NotFoundError("AgentRun", options.runId!);
+
+    await agentRunRepository.markRunning(run.id);
+    await contentRepository.updatePostStatus(post.id, "generating");
+    logger.info({ runId: run.id, contentPostId: post.id, contentIdeaId }, "content_generation.started");
+
+    const targetContentIdea: TargetContentIdeaContext = {
+      id: idea.id,
+      title: idea.title,
+      format: idea.format,
+      contentPillar: idea.contentPillar,
+      targetAudience: idea.targetAudience,
+      hook: idea.hook,
+      objective: idea.objective,
+    };
+
+    try {
+      const contextData = await contextLoader.load(accountId);
+      let regenerationFeedback: string[] = [];
+
+      for (let attempt = 1; attempt <= maxRegenerationAttempts; attempt++) {
+        const previousResults: Partial<Record<AgentName, AgentResult>> = {};
+        const buildContext = (): AgentContext => ({
+          ...contextData,
+          runId: run.id,
+          accountId,
+          logger,
+          llm,
+          tools: toolRouter,
+          previousResults,
+          targetContentIdea,
+          regenerationFeedback,
+        });
+
+        const creatorResult = await this.contentAgents.contentCreator.run(buildContext());
+        previousResults.content_creator = creatorResult;
+        const generatedContent = creatorResult.data?.generatedContent as GeneratedContent | undefined;
+        if (!generatedContent) {
+          throw new Error("ContentCreatorAgent did not return generatedContent");
+        }
+
+        const generation = await this.persistGenerationAttempt(run.id, post.id, attempt, creatorResult, generatedContent);
+
+        if (generatedContent.format !== "text") {
+          await this.generateAndPersistCoverImage(accountId, generation.id, generatedContent);
+        }
+
+        const reviewerResult = await this.contentAgents.reviewer.run(buildContext());
+        previousResults.reviewer = reviewerResult;
+        const review = reviewerResult.data?.review as ReviewResult | undefined;
+        if (!review) {
+          throw new Error("ReviewerAgent did not return a review");
+        }
+
+        await this.persistReviewResult(run.id, generation.id, reviewerResult, review);
+        await contentRepository.incrementGenerationAttempts(post.id);
+
+        if (review.approved) {
+          await contentRepository.setCurrentGenerationVersion(post.id, attempt);
+          await contentRepository.updatePostStatus(post.id, "ready_for_publishing");
+          await agentRunRepository.markFinished(run.id, "completed");
+          logger.info({ runId: run.id, contentPostId: post.id, version: attempt }, "content_generation.approved");
+          return { runId: run.id, contentPostId: post.id, status: "ready_for_publishing", generationVersion: attempt };
+        }
+
+        regenerationFeedback = review.recommendedChanges;
+        const isLastAttempt = attempt === maxRegenerationAttempts;
+        await contentRepository.updatePostStatus(post.id, isLastAttempt ? "review_failed" : "reviewing");
+        logger.info(
+          { runId: run.id, contentPostId: post.id, attempt, approved: false, isLastAttempt },
+          "content_generation.review_rejected",
+        );
+      }
+
+      await agentRunRepository.markFinished(run.id, "completed");
+      return {
+        runId: run.id,
+        contentPostId: post.id,
+        status: "review_failed",
+        generationVersion: maxRegenerationAttempts,
+      };
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      await contentRepository.updatePostStatus(post.id, "generation_failed");
+      await agentRunRepository.markFinished(run.id, "failed", message);
+      logger.error({ runId: run.id, contentPostId: post.id, error: message }, "content_generation.failed");
+      return { runId: run.id, contentPostId: post.id, status: "generation_failed", generationVersion: post.currentGenerationVersion, error: message };
     }
   }
 
@@ -264,6 +413,113 @@ export class AgentOrchestrator {
           })),
         );
       }
+    });
+  }
+
+  /** Persists one generation attempt's decision/action + the versioned content_generations row. Idempotent per (postId, version). */
+  private async persistGenerationAttempt(
+    runId: string,
+    contentPostId: string,
+    attempt: number,
+    creatorResult: AgentResult,
+    generatedContent: GeneratedContent,
+  ) {
+    return this.deps.db.transaction(async (tx) => {
+      await this.recordDecisionsAndActions(tx, runId, "content_creator", creatorResult);
+
+      const generationRepo = new ContentGenerationRepository(tx);
+      const existing = await generationRepo.findByPostIdAndVersion(contentPostId, attempt);
+      if (existing) return existing;
+
+      return generationRepo.createGeneration({
+        contentPostId,
+        versionNumber: attempt,
+        attemptNumber: attempt,
+        format: generatedContent.format,
+        payload: generatedContent,
+        status: "generated",
+        agentRunId: runId,
+        llmProvider: this.deps.llm.name,
+      });
+    });
+  }
+
+  /** Calls the generateImage tool (policy-gated) for non-text formats and records the resulting asset. Failures don't fail the whole attempt — reviewer still evaluates the copy. */
+  private async generateAndPersistCoverImage(
+    accountId: string,
+    contentGenerationId: string,
+    generatedContent: GeneratedContent,
+  ): Promise<void> {
+    const visualDirection =
+      "visualDirection" in generatedContent && generatedContent.visualDirection
+        ? generatedContent.visualDirection
+        : generatedContent.hook;
+
+    const generationRepo = new ContentGenerationRepository(this.deps.db);
+    const assetRow = await generationRepo.createAsset({
+      contentGenerationId,
+      assetType: "image",
+      provider: this.deps.imageGeneratorName,
+      status: "requested",
+    });
+
+    // A media provider being down/unreachable must never fail the whole
+    // attempt: the copy is already generated and the Reviewer can still
+    // evaluate it. The asset row records the failure instead, so it stays
+    // visible and retryable rather than silently lost.
+    let result: ToolResult<{
+      storageKey: string;
+      url: string;
+      mimeType: string;
+      provider: string;
+      providerAssetId?: string;
+      width?: number;
+      height?: number;
+    }>;
+    try {
+      result = await this.deps.toolRouter.call("generateImage", accountId, { prompt: visualDirection });
+    } catch (error) {
+      result = { success: false, error: error instanceof Error ? error.message : String(error) };
+    }
+
+    if (!result.success || !result.data) {
+      await generationRepo.updateAssetStatus(assetRow.id, { status: "failed", errorMessage: result.error ?? "Unknown image generation error" });
+      this.deps.logger.warn({ contentGenerationId, error: result.error }, "content_generation.media_failed");
+      return;
+    }
+
+    await generationRepo.updateAssetStatus(assetRow.id, {
+      status: "completed",
+      provider: result.data.provider,
+      storageKey: result.data.storageKey,
+      url: result.data.url,
+      mimeType: result.data.mimeType,
+      providerAssetId: result.data.providerAssetId,
+      width: result.data.width,
+      height: result.data.height,
+    });
+  }
+
+  private async persistReviewResult(runId: string, contentGenerationId: string, reviewerResult: AgentResult, review: ReviewResult) {
+    await this.deps.db.transaction(async (tx) => {
+      await this.recordDecisionsAndActions(tx, runId, "reviewer", reviewerResult);
+
+      const generationRepo = new ContentGenerationRepository(tx);
+      const existing = await generationRepo.findReviewByGenerationId(contentGenerationId);
+      if (existing) return;
+
+      await generationRepo.createReview({
+        contentGenerationId,
+        approved: review.approved,
+        score: review.score,
+        qualityScore: review.qualityScore,
+        brandScore: review.brandScore,
+        safetyScore: review.safetyScore,
+        issues: review.issues,
+        warnings: review.warnings,
+        recommendedChanges: review.recommendedChanges,
+        agentRunId: runId,
+      });
     });
   }
 }

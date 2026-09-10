@@ -6,12 +6,13 @@ import { createLogger } from "@agent/shared";
 
 function createFakeDeps(): AppDependencies {
   return {
-    env: { NODE_ENV: "test" } as AppDependencies["env"],
+    env: { NODE_ENV: "test", STORAGE_LOCAL_DIR: "/tmp" } as AppDependencies["env"],
     logger: createLogger({ name: "test", level: "silent" }),
     db: { execute: vi.fn(async () => undefined) } as unknown as AppDependencies["db"],
     redis: { ping: vi.fn(async () => "PONG"), quit: vi.fn() } as unknown as AppDependencies["redis"],
     llm: { name: "mock", generateText: vi.fn(), generateStructured: vi.fn() },
     agentQueueProducer: { enqueueRun: vi.fn(), close: vi.fn() } as unknown as AppDependencies["agentQueueProducer"],
+    contentQueueProducer: { enqueueGeneration: vi.fn(), close: vi.fn() } as unknown as AppDependencies["contentQueueProducer"],
     agentSystem: {
       orchestrator: { executeRun: vi.fn() },
       agentRunService: { listRuns: vi.fn(async () => []) },

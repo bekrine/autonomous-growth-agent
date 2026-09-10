@@ -13,6 +13,11 @@ export class AgentProfileRepository {
     return row ?? null;
   }
 
+  async findById(id: string) {
+    const [row] = await this.db.select().from(agentProfiles).where(eq(agentProfiles.id, id));
+    return row ?? null;
+  }
+
   async create(input: { socialAccountId: string; niche: string; audienceDescription?: string; tone?: string }) {
     const [row] = await this.db.insert(agentProfiles).values(input).returning();
     return row;

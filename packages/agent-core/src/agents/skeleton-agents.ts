@@ -22,14 +22,6 @@ abstract class SkeletonAgent implements Agent {
   }
 }
 
-export class ContentCreatorAgent extends SkeletonAgent {
-  readonly name = "content_creator" as const;
-}
-
-export class ReviewerAgent extends SkeletonAgent {
-  readonly name = "reviewer" as const;
-}
-
 export class AnalyticsAgent extends SkeletonAgent {
   readonly name = "analytics" as const;
 }

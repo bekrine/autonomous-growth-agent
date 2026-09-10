@@ -10,7 +10,8 @@
     { "path": "../../packages/llm" },
     { "path": "../../packages/social-platforms" },
     { "path": "../../packages/policies" },
-    { "path": "../../packages/agent-core" }
+    { "path": "../../packages/agent-core" },
+    { "path": "../../packages/media" }
   ],
   "include": ["src"]
 }

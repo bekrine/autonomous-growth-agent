@@ -14,11 +14,12 @@ hold only transient job state.
 
 ## Schema overview
 
-17 tables, grouped by concern (see `packages/database/src/schema/`):
+20 tables, grouped by concern (see `packages/database/src/schema/`):
 
 - **Identity**: `users`, `social_accounts`
 - **Strategy**: `agent_profiles`, `agent_goals`, `agent_strategies`, `strategy_versions`
 - **Content**: `content_ideas`, `content_posts`, `publishing_jobs`
+- **Content generation**: `content_generations`, `content_reviews`, `content_assets`
 - **Research**: `research_findings`
 - **Measurement**: `analytics_snapshots`, `experiments`, `experiment_variants`
 - **Audit trail**: `agent_runs`, `agent_decisions`, `agent_actions`, `outbox_events`
@@ -36,6 +37,45 @@ Key design choices:
   `agent_run_id` FK to `agent_runs`. It's both traceability (which run produced this row)
   and the idempotency key the orchestrator checks before writing — see "Transactions and
   idempotency" below.
+
+### Phase 3 additions (content generation)
+
+Three new tables, all hanging off `content_posts`:
+
+- **`content_generations`** — one row per ContentCreatorAgent attempt:
+  `content_post_id, version_number, attempt_number, format, payload (jsonb), status,
+  error_message, agent_run_id, llm_provider, llm_model, duration_ms, prompt_tokens,
+  completion_tokens, created_at`. **Append-only** — v1/v2/v3 are all preserved so the
+  future learning system can compare which generated version performed best.
+  `UNIQUE (content_post_id, version_number)` is the idempotency key.
+- **`content_reviews`** — one row per generation (`UNIQUE content_generation_id`):
+  `approved, score, quality_score, brand_score, safety_score, issues, warnings,
+  recommended_changes`. Re-reviewing means generating a *new* version, never overwriting.
+- **`content_assets`** — asset **metadata only**: `asset_type, storage_key, url, mime_type,
+  provider, provider_asset_id, width, height, duration_seconds, status, error_message`.
+  The bytes live in object storage (`packages/media`'s `ObjectStorage`), never in Postgres.
+
+`content_posts` also gained `current_generation_version` and `generation_attempts`
+(denormalized for cheap reads; `content_generations` remains the source of truth), and
+`content_idea_id` became `UNIQUE` so "find or create the post for this idea" is a single
+idempotent lookup.
+
+### Content lifecycle
+
+`content_post_status` gained the Phase 3 states, appended non-destructively via
+`ALTER TYPE ... ADD VALUE` so no existing rows were rewritten:
+
+```
+idea → brief_created → generating → generated → reviewing → ready_for_publishing
+                            ↓                        ↓
+                    generation_failed          review_failed
+```
+
+`ready_for_publishing` is the terminal success state for Phase 3 — nothing in this phase
+publishes. `review_failed` means the regeneration budget
+(`MAX_CONTENT_GENERATION_ATTEMPTS`, default 3) was exhausted and a human should look.
+
+Media assets have their own lifecycle: `requested → generating → completed | failed`.
 
 ### Phase 2 additions
 
@@ -85,6 +125,17 @@ This means calling `AgentOrchestrator.executeRun(accountId, { runId })` twice fo
 `runId` (e.g. a redelivered BullMQ job) re-runs the agents but writes each domain row at
 most once. A run already `status: "completed"` short-circuits before re-running the agents
 at all.
+
+Content generation (`AgentOrchestrator.generateContent`) uses the same approach, keyed on
+`(content_post_id, version_number)` instead:
+
+- The content post is found-or-created by `content_idea_id` (which is `UNIQUE`), so one
+  idea never spawns two posts.
+- A post already in a terminal state (`ready_for_publishing` / `review_failed`)
+  short-circuits before any LLM call.
+- Each generation attempt checks `findByPostIdAndVersion` before inserting, and each
+  review checks `findReviewByGenerationId` — both backed by real `UNIQUE` constraints, so
+  a concurrent duplicate fails at the database rather than silently double-writing.
 
 ## Migrations
 
