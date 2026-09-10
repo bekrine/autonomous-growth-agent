@@ -136,4 +136,9 @@ export class ContentGenerationRepository {
   async listAssetsByGenerationId(contentGenerationId: string) {
     return this.db.select().from(contentAssets).where(eq(contentAssets.contentGenerationId, contentGenerationId));
   }
+
+  async findAssetById(id: string) {
+    const [row] = await this.db.select().from(contentAssets).where(eq(contentAssets.id, id));
+    return row ?? null;
+  }
 }

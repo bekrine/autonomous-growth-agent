@@ -45,9 +45,22 @@ export class OutboxPublisher {
         await this.outboxRepository.markFailed(event.id);
         continue;
       }
-      await queue.add(event.eventType, event.payload);
+      const payload = (event.payload ?? {}) as Record<string, unknown>;
+
+      // Two optional, generic conventions any producer can use:
+      //   delayMs  — schedule the job instead of running it immediately
+      //              (durable in Redis, unlike setTimeout)
+      //   jobId    — deterministic id so a redelivered outbox event maps to
+      //              the same BullMQ job rather than enqueueing twice
+      const delayMs = typeof payload.delayMs === "number" && payload.delayMs > 0 ? payload.delayMs : undefined;
+      const jobId = `${event.aggregateType}:${event.aggregateId}`;
+
+      await queue.add(event.eventType, payload, { delay: delayMs, jobId });
       await this.outboxRepository.markPublished(event.id);
-      this.logger.info({ eventId: event.id, queue: event.aggregateType }, "outbox.published");
+      this.logger.info(
+        { eventId: event.id, queue: event.aggregateType, jobId, delayMs },
+        "outbox.published",
+      );
     }
   }
 }

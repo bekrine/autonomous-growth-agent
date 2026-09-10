@@ -1,34 +1,57 @@
-import type { SocialPlatformName } from "@agent/shared";
-import type { SocialPlatformRegistry } from "@agent/social-platforms";
 import type { Tool } from "../tool.js";
+import type { PublishingService } from "../publishing/publishing-service.js";
 
 export interface PublishPostToolInput {
-  platform: SocialPlatformName;
-  socialAccountExternalId: string;
-  caption: string;
-  mediaUrls: string[];
-  /** Read by ContentApprovalPolicy before this tool ever runs. */
-  contentStatus: string;
+  contentPostId: string;
+  socialConnectionId: string;
+  /** Read by ContentApprovalPolicy/PublishableContentPolicy before this tool ever runs. */
+  contentStatus?: string;
+  agentRunId?: string;
 }
 
 export interface PublishPostToolOutput {
-  externalPostId: string;
-  publishedAt: string;
+  accepted: boolean;
+  publishingJobId?: string;
+  status?: string;
+  reason?: string;
 }
 
+/**
+ * The agent's route to publishing. It only ever *enqueues* — the agent never
+ * waits on Meta's asynchronous media processing, and never touches the Meta
+ * SDK. The real call happens later in the publishing worker.
+ *
+ *   Agent -> ToolRouter -> Policy -> PublishingService -> Queue -> Worker -> Adapter
+ *
+ * Note the enqueue path runs the full publishing policy set again inside
+ * PublishingService (including AutoPublishPolicy, which blocks
+ * agent-initiated publishing while AUTO_PUBLISH_ENABLED is false).
+ */
 export class PublishPostTool implements Tool<PublishPostToolInput, PublishPostToolOutput> {
   readonly name = "publishPost";
-  readonly description = "Publish an approved post to a social platform.";
+  readonly description = "Queue an approved content post for publishing to its connected social platform.";
 
-  constructor(private readonly platforms: SocialPlatformRegistry) {}
+  constructor(private readonly publishingService: PublishingService) {}
 
   async execute(input: PublishPostToolInput) {
-    const adapter = this.platforms.get(input.platform);
-    const result = await adapter.publishPost({
-      socialAccountExternalId: input.socialAccountExternalId,
-      caption: input.caption,
-      mediaUrls: input.mediaUrls,
+    const result = await this.publishingService.enqueue({
+      contentPostId: input.contentPostId,
+      socialConnectionId: input.socialConnectionId,
+      initiatedBy: "agent",
+      agentRunId: input.agentRunId,
     });
-    return { success: true, data: result };
+
+    if (!result.accepted) {
+      return { success: false, error: result.reason ?? "Publishing was not accepted.", data: result };
+    }
+
+    return {
+      success: true,
+      data: {
+        accepted: true,
+        publishingJobId: result.publishingJobId,
+        status: result.status,
+      },
+    };
   }
 }

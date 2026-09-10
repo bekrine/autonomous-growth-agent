@@ -8,3 +8,5 @@ export * from "./experiment.repository.js";
 export * from "./agent-profile.repository.js";
 export * from "./research.repository.js";
 export * from "./content-generation.repository.js";
+export * from "./social-connection.repository.js";
+export * from "./publishing-job.repository.js";

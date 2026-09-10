@@ -7,3 +7,4 @@ export * from "./policies/rate-limit-policy.js";
 export * from "./policies/platform-availability-policy.js";
 export * from "./policies/human-approval-policy.js";
 export * from "./policies/daily-generation-limit-policy.js";
+export * from "./policies/publishing-policies.js";

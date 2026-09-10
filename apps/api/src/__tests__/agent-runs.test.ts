@@ -60,6 +60,12 @@ function createFakeDeps(overrides: Partial<AppDependencies["agentSystem"]> = {})
     llm: { name: "mock", generateText: vi.fn(), generateStructured: vi.fn() },
     agentQueueProducer: { enqueueRun: vi.fn(async () => ({ jobId: "job-1" })), close: vi.fn() } as unknown as AppDependencies["agentQueueProducer"],
     contentQueueProducer: { enqueueGeneration: vi.fn(async () => ({ jobId: "job-2" })), close: vi.fn() } as unknown as AppDependencies["contentQueueProducer"],
+    publishingQueueProducer: { enqueuePublish: vi.fn(async () => ({ jobId: "pub-1" })), close: vi.fn() } as unknown as AppDependencies["publishingQueueProducer"],
+    instagramAuthService: {
+      isConfigured: vi.fn(() => false),
+      getStatus: vi.fn(async () => ({ configured: false, connected: false })),
+      listConnections: vi.fn(async () => []),
+    } as unknown as AppDependencies["instagramAuthService"],
     agentSystem: {
       orchestrator,
       agentRunService,

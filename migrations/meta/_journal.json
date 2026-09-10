@@ -22,6 +22,13 @@
       "when": 1788950016209,
       "tag": "0002_parallel_logan",
       "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "7",
+      "when": 1789072917119,
+      "tag": "0003_brown_amphibian",
+      "breakpoints": true
     }
   ]
 }

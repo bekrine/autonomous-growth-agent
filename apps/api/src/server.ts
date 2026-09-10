@@ -22,6 +22,7 @@ async function main() {
         deps.redis.quit(),
         deps.agentQueueProducer.close(),
         deps.contentQueueProducer.close(),
+        deps.publishingQueueProducer.close(),
       ]);
       deps.logger.info("api.shutdown_complete");
       process.exit(0);

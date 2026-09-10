@@ -4,6 +4,30 @@
     "outDir": "dist",
     "rootDir": "src"
   },
-  "references": [{ "path": "../../packages/shared" }],
-  "include": ["src"]
+  "references": [
+    {
+      "path": "../../packages/shared"
+    },
+    {
+      "path": "../../packages/database"
+    },
+    {
+      "path": "../../packages/llm"
+    },
+    {
+      "path": "../../packages/social-platforms"
+    },
+    {
+      "path": "../../packages/policies"
+    },
+    {
+      "path": "../../packages/media"
+    },
+    {
+      "path": "../../packages/agent-core"
+    }
+  ],
+  "include": [
+    "src"
+  ]
 }

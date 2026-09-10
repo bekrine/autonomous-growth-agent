@@ -35,6 +35,10 @@ export const contentPostStatusEnum = pgEnum("content_post_status", [
   "ready_for_publishing",
   "generation_failed",
   "review_failed",
+  // Phase 4 publishing lifecycle, appended for the same non-destructive reason.
+  "queued",
+  "publishing",
+  "publish_failed",
 ]);
 
 export const contentIdeaStatusEnum = pgEnum("content_idea_status", [
@@ -49,6 +53,12 @@ export const publishingJobStatusEnum = pgEnum("publishing_job_status", [
   "processing",
   "succeeded",
   "failed",
+  // Phase 4 additions (appended, non-destructive).
+  "scheduled",
+  "publishing",
+  "published",
+  "retry_scheduled",
+  "cancelled",
 ]);
 
 export const experimentStatusEnum = pgEnum("experiment_status", [
@@ -85,4 +95,19 @@ export const mediaAssetStatusEnum = pgEnum("media_asset_status", [
   "generating",
   "completed",
   "failed",
+]);
+
+export const socialConnectionStatusEnum = pgEnum("social_connection_status", [
+  "connected",
+  "expired",
+  "revoked",
+  "error",
+]);
+
+/** Only Instagram *Professional* accounts can publish via the API; "personal" is recorded so the UI can explain why an account is unsupported. */
+export const socialAccountTypeEnum = pgEnum("social_account_type", [
+  "business",
+  "creator",
+  "personal",
+  "unknown",
 ]);

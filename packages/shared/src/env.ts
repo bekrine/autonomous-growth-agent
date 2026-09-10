@@ -35,6 +35,38 @@ const envSchema = z.object({
   FACEBOOK_APP_ID: z.string().optional().default(""),
   FACEBOOK_APP_SECRET: z.string().optional().default(""),
 
+  // --- Meta / Instagram publishing (Phase 4) ---
+  // All optional so the app still boots with social integration unconfigured;
+  // InstagramAuthService.isConfigured() gates the OAuth routes instead.
+  META_APP_ID: z.string().optional().default(""),
+  META_APP_SECRET: z.string().optional().default(""),
+  META_REDIRECT_URI: z.string().optional().default("http://localhost:4000/api/social/instagram/callback"),
+  META_API_VERSION: z.string().optional().default("v21.0"),
+  META_GRAPH_HOST: z.string().optional().default("https://graph.facebook.com"),
+  /** Opt-in: without it the system uses MockInstagramAdapter and never calls Meta. */
+  INSTAGRAM_PUBLISHING_ENABLED: z
+    .string()
+    .optional()
+    .default("false")
+    .transform((v) => v === "true"),
+  /** 32-byte key (hex or base64) for AES-256-GCM token encryption at rest. */
+  TOKEN_ENCRYPTION_KEY: z.string().optional().default(""),
+
+  // --- Publishing safety / rate limits ---
+  // Deliberately conservative: Meta allows 100/24h, we default far below so a
+  // queue or retry bug can't burn the real quota.
+  AUTO_PUBLISH_ENABLED: z
+    .string()
+    .optional()
+    .default("false")
+    .transform((v) => v === "true"),
+  MAX_POSTS_PER_DAY: z.coerce.number().int().min(0).max(100).optional().default(5),
+  MAX_POSTS_PER_HOUR: z.coerce.number().int().min(0).max(50).optional().default(2),
+  MIN_MINUTES_BETWEEN_POSTS: z.coerce.number().int().min(0).optional().default(10),
+  MAX_PUBLISH_ATTEMPTS: z.coerce.number().int().min(1).max(10).optional().default(3),
+  /** Where the OAuth callback sends the browser after a successful connect. */
+  DASHBOARD_URL: z.string().optional().default("http://localhost:3000"),
+
   STORAGE_ENDPOINT: z.string().optional().default(""),
   STORAGE_BUCKET: z.string().optional().default(""),
   STORAGE_ACCESS_KEY: z.string().optional().default(""),

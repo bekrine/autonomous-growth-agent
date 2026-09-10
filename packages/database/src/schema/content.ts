@@ -1,9 +1,14 @@
 import { relations } from "drizzle-orm";
-import { index, integer, jsonb, numeric, pgTable, text, timestamp, uuid } from "drizzle-orm/pg-core";
+import { index, integer, jsonb, numeric, pgTable, text, timestamp, unique, uuid } from "drizzle-orm/pg-core";
 import { agentProfiles, strategyVersions } from "./agent.js";
 import { socialAccounts } from "./core.js";
 import { agentRuns } from "./runtime.js";
-import { contentIdeaStatusEnum, contentPostStatusEnum, publishingJobStatusEnum } from "./enums.js";
+import {
+  contentIdeaStatusEnum,
+  contentPostStatusEnum,
+  publishingJobStatusEnum,
+  socialPlatformEnum,
+} from "./enums.js";
 
 export const contentIdeas = pgTable(
   "content_ideas",
@@ -78,12 +83,32 @@ export const publishingJobs = pgTable(
     attempts: integer("attempts").notNull().default(0),
     lastError: text("last_error"),
     scheduledFor: timestamp("scheduled_for", { withTimezone: true }),
+    // --- Phase 4 publishing fields ---
+    // Which exact generated version was published, so Phase 5 analytics can
+    // attribute performance to the right content version.
+    contentGenerationId: uuid("content_generation_id"),
+    socialConnectionId: uuid("social_connection_id"),
+    platform: socialPlatformEnum("platform"),
+    /**
+     * Stable per (post, generation) key. UNIQUE, so a duplicate publish
+     * request or redelivered job can never create a second job row — the
+     * database enforces idempotency rather than application logic alone.
+     */
+    idempotencyKey: text("idempotency_key"),
+    /** Meta media container id — lets a retry resume/verify instead of re-creating. */
+    externalContainerId: text("external_container_id"),
+    /** Platform post id (e.g. Instagram media id). Distinct from our contentPostId. */
+    externalPostId: text("external_post_id"),
+    errorCode: text("error_code"),
+    publishedAt: timestamp("published_at", { withTimezone: true }),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (table) => [
     index("publishing_jobs_content_post_id_idx").on(table.contentPostId),
     index("publishing_jobs_status_idx").on(table.status),
+    unique("publishing_jobs_idempotency_key_key").on(table.idempotencyKey),
+    index("publishing_jobs_scheduled_for_idx").on(table.scheduledFor),
   ],
 );
 

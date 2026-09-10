@@ -7,6 +7,8 @@ import { accountsRoutes } from "./routes/accounts.routes.js";
 import { strategiesRoutes } from "./routes/strategies.routes.js";
 import { contentRoutes } from "./routes/content.routes.js";
 import { contentGenerationRoutes } from "./routes/content-generation.routes.js";
+import { socialRoutes } from "./routes/social.routes.js";
+import { publishingRoutes } from "./routes/publishing.routes.js";
 import { analyticsRoutes } from "./routes/analytics.routes.js";
 import { experimentsRoutes } from "./routes/experiments.routes.js";
 import { agentRunsRoutes } from "./routes/agent-runs.routes.js";
@@ -27,6 +29,8 @@ export function createApp(deps: AppDependencies): Express {
   app.use("/api", strategiesRoutes(deps));
   app.use("/api", contentRoutes(deps));
   app.use("/api", contentGenerationRoutes(deps));
+  app.use("/api", socialRoutes(deps));
+  app.use("/api", publishingRoutes(deps));
   app.use("/api", analyticsRoutes(deps));
   app.use("/api", experimentsRoutes(deps));
   app.use("/api", agentRunsRoutes(deps));

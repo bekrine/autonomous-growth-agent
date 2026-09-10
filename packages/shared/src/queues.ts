@@ -39,3 +39,16 @@ export interface GenerateContentJobData {
   /** Present when resuming/retrying a specific content-generation run instead of starting a new one. */
   runId?: string;
 }
+
+/**
+ * Publishes one approved content post to a social platform. The job carries
+ * only the publishing_jobs row id — every other detail (content, connection,
+ * idempotency key, attempt count) is read from Postgres by PublishingService,
+ * so a delayed or redelivered job always acts on current state rather than a
+ * stale snapshot captured at enqueue time.
+ */
+export const PUBLISH_CONTENT_JOB_NAME = "publish-content";
+
+export interface PublishContentJobData {
+  publishingJobId: string;
+}
