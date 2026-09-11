@@ -5,8 +5,10 @@
 Defined once in `packages/shared/src/queues.ts` (`QUEUE_NAMES`) so the API (producer) and
 workers (consumers) can't drift:
 
-- `research`, `strategy`, `publishing`, `analytics`, `experiments` — per-stage placeholder
-  queues (Phase 1), unused by the real flows so far.
+- `research`, `strategy`, `analytics`, `experiments` — per-stage placeholder queues
+  (Phase 1), unused by the real flows so far.
+- `publishing` — **real** (Phase 4). Publishes one approved content post to a connected
+  platform account.
 - `agent-run` — runs the full Research → Strategy → ContentPlanner pipeline for one
   account, via the exact same `AgentRunService` the API calls synchronously.
 - `content` — **real** (Phase 3). Its `generate-content` job runs
@@ -17,11 +19,51 @@ workers (consumers) can't drift:
 | Worker | Queues |
 |---|---|
 | `workers/agent-worker` | `research`, `strategy`, `experiments` (placeholders), `agent-run` + `content` (real) |
-| `workers/publishing-worker` | `publishing` |
+| `workers/publishing-worker` | `publishing` (real) |
 | `workers/analytics-worker` | `analytics` |
 
 The remaining per-stage queues still run placeholder processors (`processors.ts`): they log
-the job and acknowledge it. `agent-run` and `content` are fully implemented — see below.
+the job and acknowledge it. `agent-run`, `content` and `publishing` are fully implemented —
+see below.
+
+## The `publishing` queue
+
+`PublishingService.enqueue()` writes a `publishing_jobs` row and an `outbox_events` row in
+one transaction; `OutboxPublisher` then moves it onto this queue.
+`workers/publishing-worker/src/publishing-processor.ts` consumes it:
+
+```
+BullMQ job { publishingJobId }
+        ↓
+createPublishingProcessor (job plumbing only — no business logic)
+        ↓
+PublishingService.execute(publishingJobId)
+   claim → re-evaluate policy → decrypt token → adapter.publish() → persist
+```
+
+Two safeguards make redelivery harmless, and both live in the **database** rather than in
+app-level bookkeeping:
+
+- `publishing_jobs.idempotency_key` is UNIQUE, so a repeated enqueue for the same
+  (post, generation) returns the existing job instead of creating a second one.
+- `claimForPublishing()` is a conditional `UPDATE ... WHERE status IN
+  ('queued','scheduled','retry_scheduled')`. Two workers racing the same job means exactly
+  one claim succeeds; the loser does nothing. A job already `published` can never be
+  re-claimed.
+
+The processor throws (letting BullMQ retry) **only** when the resulting status is
+`retry_scheduled`. A permanent failure — bad credentials, invalid media, policy denial — is
+a terminal outcome recorded on the row, not a job failure, so BullMQ does not retry it and
+attempts are not burned. Retries are additionally bounded by `MAX_PUBLISH_ATTEMPTS`.
+
+Scheduled posts carry a persisted `scheduled_for` timestamp that `execute()` checks; a job
+that isn't due yet is declined by policy rather than slept on. Nothing uses `setTimeout`,
+so restarting the stack cannot lose a scheduled post.
+
+> **Testing gotcha:** the integration tests drive `PublishingService` directly against the
+> same Postgres/Redis. If a local publishing-worker is running, it will consume the tests'
+> outbox events and race them, producing confusing order-dependent failures. Stop local
+> workers before running the suite.
 
 ## The `content` queue
 

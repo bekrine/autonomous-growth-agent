@@ -29,6 +29,13 @@
       "when": 1789072917119,
       "tag": "0003_brown_amphibian",
       "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1789078227148,
+      "tag": "0004_massive_zombie",
+      "breakpoints": true
     }
   ]
 }

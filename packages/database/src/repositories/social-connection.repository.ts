@@ -132,6 +132,27 @@ export class SocialConnectionRepository {
     return row;
   }
 
+  /**
+   * Disconnecting keeps the row so past publishing_jobs still resolve to the
+   * account they published to, but destroys the credential: the ciphertext is
+   * cleared, not just marked unusable.
+   */
+  async revoke(id: string) {
+    const [row] = await this.db
+      .update(socialConnections)
+      .set({
+        status: "revoked",
+        accessTokenEncrypted: null,
+        refreshTokenEncrypted: null,
+        tokenExpiresAt: null,
+        lastError: null,
+        updatedAt: new Date(),
+      })
+      .where(eq(socialConnections.id, id))
+      .returning();
+    return row;
+  }
+
   async delete(id: string) {
     await this.db.delete(socialConnections).where(eq(socialConnections.id, id));
   }

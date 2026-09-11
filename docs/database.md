@@ -71,11 +71,46 @@ idea → brief_created → generating → generated → reviewing → ready_for_
                     generation_failed          review_failed
 ```
 
-`ready_for_publishing` is the terminal success state for Phase 3 — nothing in this phase
-publishes. `review_failed` means the regeneration budget
-(`MAX_CONTENT_GENERATION_ATTEMPTS`, default 3) was exhausted and a human should look.
+`review_failed` means the regeneration budget (`MAX_CONTENT_GENERATION_ATTEMPTS`,
+default 3) was exhausted and a human should look.
 
 Media assets have their own lifecycle: `requested → generating → completed | failed`.
+
+Phase 4 continues the post lifecycle past `ready_for_publishing`:
+
+```
+ready_for_publishing → queued | scheduled → publishing → published
+                                                 ↓
+                                         (job failed; post returns to
+                                          ready_for_publishing for retry)
+```
+
+### Phase 4 additions (social connections and publishing)
+
+- **`social_connections`** — an authorized link to a real platform account:
+  `social_account_id, platform, platform_account_id, platform_username, account_type,
+  access_token_encrypted, refresh_token_encrypted, token_expires_at, scopes, status,
+  last_error, metadata`. Tokens are **AES-256-GCM ciphertext**
+  (`packages/shared/src/crypto.ts`), never plaintext, and repositories expose a
+  `SafeSocialConnection` projection that omits them — only `findByIdWithSecrets()` returns
+  the ciphertext, and only `PublishingService` calls it.
+  `UNIQUE (platform, platform_account_id)` makes reconnecting the same Instagram account
+  an update rather than a duplicate.
+  Disconnecting calls `revoke()`, which sets `status = 'revoked'` and **nulls the stored
+  ciphertext** while keeping the row, so historical `publishing_jobs` still resolve to the
+  account they published to. That is why `access_token_encrypted` is nullable
+  (`0004_massive_zombie.sql`).
+- **`oauth_states`** — short-lived CSRF state for the OAuth handshake: `state` (UNIQUE),
+  `social_account_id`, `redirect_uri`, `expires_at`. Consumed single-use. The account id
+  is read back **from this row**, never from the callback query string, so a forged
+  callback cannot attach a connection to someone else's account.
+- **`publishing_jobs`** gained `content_generation_id, social_connection_id, platform,
+  idempotency_key (UNIQUE), external_container_id, external_post_id, error_code,
+  published_at`.
+
+`external_container_id` is stored separately from `external_post_id` because Meta's flow
+has two ids: the container created first, and the media id returned by `media_publish`.
+Recording the container makes a crash mid-flow diagnosable.
 
 ### Phase 2 additions
 
@@ -136,6 +171,23 @@ Content generation (`AgentOrchestrator.generateContent`) uses the same approach,
 - Each generation attempt checks `findByPostIdAndVersion` before inserting, and each
   review checks `findReviewByGenerationId` — both backed by real `UNIQUE` constraints, so
   a concurrent duplicate fails at the database rather than silently double-writing.
+
+Publishing (Phase 4) raises the bar, because the side effect is irreversible: a duplicate
+row is recoverable, a duplicate Instagram post is not. So neither guard is a
+read-before-write check — both are enforced by the database itself:
+
+- **Enqueue** inserts with `ON CONFLICT (idempotency_key) DO NOTHING` and reports whether
+  a row was actually created. Two simultaneous publish requests for the same
+  (post, generation) produce one job.
+- **Execute** claims the job with a conditional
+  `UPDATE ... SET status='publishing' WHERE status IN ('queued','scheduled','retry_scheduled')`.
+  Only one caller can observe the row transition; a redelivered BullMQ job or a second
+  worker claims nothing and returns `skipped`. A `published` job can never be re-claimed,
+  which is the property that makes queue retries safe.
+
+Read-before-write would not be sufficient here: two workers could both read `queued` and
+both proceed. The conditional UPDATE collapses the check and the write into one atomic
+statement.
 
 ## Migrations
 

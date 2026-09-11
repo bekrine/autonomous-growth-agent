@@ -186,7 +186,10 @@ export class InstagramAuthService {
     const connection = await this.deps.socialConnectionRepository.findById(connectionId);
     if (!connection) throw new NotFoundError("SocialConnection", connectionId);
 
-    await this.deps.socialConnectionRepository.delete(connectionId);
+    // Revoke rather than delete: past publishing_jobs still reference this
+    // connection, and the audit trail matters more than the row. The stored
+    // ciphertext is destroyed either way.
+    await this.deps.socialConnectionRepository.revoke(connectionId);
     this.deps.logger.info({ connectionId }, "instagram.disconnected");
   }
 

@@ -25,7 +25,8 @@ OBSERVE → THINK → PLAN → CREATE → REVIEW → ACT → MEASURE → LEARN �
 
 See [`docs/architecture.md`](docs/architecture.md) for the full system design,
 [`docs/agents.md`](docs/agents.md) for how the agents reason and what they persist, and
-[`docs/local-development.md`](docs/local-development.md) to get running.
+[`docs/local-development.md`](docs/local-development.md) to get running, and
+[`docs/instagram-setup.md`](docs/instagram-setup.md) to connect a real Instagram account.
 
 ## Stack
 
@@ -119,7 +120,7 @@ applying migrations, and the full verification walkthrough.
 
 ## Status
 
-**Phases 1–3 are complete.**
+**Phases 1–4 are complete.**
 
 - **Phase 1** — foundation: monorepo, schema, queues, API, policy layer, dashboard shell.
 - **Phase 2** — ResearchAgent, StrategyAgent and ContentPlannerAgent reason over real
@@ -129,11 +130,16 @@ applying migrations, and the full verification walkthrough.
   versioned content package (format-specific: reel script / carousel slides / image copy /
   text body, plus caption, CTA, keywords, alt text and a generated cover image), looping
   through bounded regeneration until approved. Terminal state: `READY_FOR_PUBLISHING`.
+- **Phase 4** — real Instagram publishing via the Meta Graph API: OAuth connection with
+  AES-256-GCM encrypted tokens, a `PublishingService` that owns policy + idempotency +
+  retry classification, a `publishing` queue driven by the outbox, and dashboard controls
+  for publishing, scheduling, cancelling and tracking jobs. Autonomy ships **off**
+  (`AUTO_PUBLISH_ENABLED=false`): only human-initiated publishes are allowed until you
+  turn it on. See [`docs/instagram-setup.md`](docs/instagram-setup.md).
 
 Still typed skeletons: `AnalyticsAgent`, `ExperimentAgent`, `CommunityAgent`.
-Still stubs by design: social platform adapters, real research/trend sources, video
-generation. **Publishing is intentionally not implemented** — see
-[`docs/architecture.md`](docs/architecture.md) for exactly where Phase 4 plugs in.
+Still stubs by design: the `FacebookAdapter`, Instagram *reads* (analytics, comments —
+Phases 5–6), real research/trend sources, video generation.
 
 ### Known limitations
 
@@ -143,4 +149,12 @@ generation. **Publishing is intentionally not implemented** — see
 - Generated assets are written to local disk; `STORAGE_*` is reserved for a real
   object-storage provider.
 - Rate/cost limiters are in-memory, so they're per-process — move the counters to Redis
-  before running multiple API/worker instances.
+  before running multiple API/worker instances. (Publishing rate limits are the exception:
+  they count rows in `publishing_jobs`, so they hold across processes.)
+- Instagram publishing requires media at a **public HTTPS URL** — Meta fetches it
+  server-side — and images must be **JPEG**. The mock image generator emits SVG, so a real
+  publish needs a real hosted JPEG.
+- Long-lived Meta tokens expire in ~60 days and are not auto-refreshed yet; the dashboard
+  surfaces the expiry and the connection must be re-authorized.
+- The Meta app runs in Development mode, so it can only publish to accounts with a role on
+  the app. Publishing on behalf of others needs App Review and Business Verification.

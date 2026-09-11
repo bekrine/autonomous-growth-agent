@@ -431,14 +431,35 @@ export class PublishingService {
     };
   }
 
-  private decryptToken(encrypted: string): string {
+  private decryptToken(encrypted: string | null): string {
+    if (!encrypted) {
+      // A revoked connection has had its ciphertext destroyed. SocialConnectionPolicy
+      // should already have denied this, so reaching here means state changed under us.
+      throw new PublishingError(
+        "AUTHENTICATION_FAILED",
+        "This Instagram connection has been disconnected. Reconnect the account.",
+      );
+    }
     if (!this.deps.tokenEncryption) {
       throw new PublishingError(
         "AUTHENTICATION_FAILED",
         "Token encryption is not configured — set TOKEN_ENCRYPTION_KEY to publish.",
       );
     }
-    return this.deps.tokenEncryption.decrypt(encrypted);
+    try {
+      return this.deps.tokenEncryption.decrypt(encrypted);
+    } catch {
+      // A wrong/rotated key or corrupted ciphertext will fail identically on
+      // every retry, so classify it as permanent rather than letting it
+      // masquerade as UNKNOWN (which is retryable) and burn all attempts.
+      // The underlying error is deliberately not propagated — it must not
+      // leak ciphertext or key material.
+      throw new PublishingError(
+        "AUTHENTICATION_FAILED",
+        "The stored Instagram credential could not be read. Reconnect the account.",
+        "token decryption failed",
+      );
+    }
   }
 
   /** Publishing is an agent action and must appear in the audit trail. */

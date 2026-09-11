@@ -11,6 +11,7 @@ import {
 } from "@/lib/api";
 import { StatusBadge } from "@/components/ui/status-badge";
 import { GeneratedContentDetail } from "./generated-content-detail";
+import { PublishActions } from "./publish-actions";
 
 /**
  * Content ideas come from a Phase 2 agent run, so this panel lets you
@@ -118,6 +119,12 @@ export function ContentGenerationPanel() {
           </div>
 
           {content.error ? <p className="text-sm text-rose-400">{content.error}</p> : null}
+
+          <PublishActions
+            contentPostId={content.contentId}
+            contentStatus={content.status}
+            accountId={effectiveAccountId || null}
+          />
 
           {generation ? (
             <GeneratedContentDetail generation={generation} versions={versionsQuery.data?.versions ?? []} />

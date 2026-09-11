@@ -468,6 +468,37 @@ describe.skipIf(!databaseAvailable)("PublishingService retry policy", () => {
     expect(job?.attempts).toBe(1);
   });
 
+  it("treats an unreadable stored credential as permanent, not retryable", async () => {
+    const system = buildSystem({ maxPublishAttempts: 3 });
+    const { post, connection } = await seedPublishableContent(system, "bad-key");
+
+    // Simulate a rotated/incorrect key: the stored ciphertext can no longer be read.
+    const otherKey = new TokenEncryptionService(generateEncryptionKey());
+    await system.repositories.socialConnectionRepository.upsert({
+      socialAccountId: post.socialAccountId,
+      platform: "instagram",
+      platformAccountId: (await system.repositories.socialConnectionRepository.findByIdWithSecrets(connection.id))!
+        .platformAccountId,
+      accountType: "business",
+      accessTokenEncrypted: otherKey.encrypt("TOKEN_UNDER_A_DIFFERENT_KEY"),
+      scopes: [],
+    });
+
+    const enqueued = await system.publishingService.enqueue({
+      contentPostId: post.id,
+      socialConnectionId: connection.id,
+      initiatedBy: "human",
+    });
+    await system.publishingService.execute(enqueued.publishingJobId!);
+
+    const job = await system.repositories.publishingJobRepository.findById(enqueued.publishingJobId!);
+    // Permanent: straight to failed on attempt 1, no retry_scheduled.
+    expect(job?.status).toBe("failed");
+    expect(job?.errorCode).toBe("AUTHENTICATION_FAILED");
+    expect(job?.attempts).toBe(1);
+    expect(job?.lastError ?? "").not.toContain("TOKEN_UNDER_A_DIFFERENT_KEY");
+  });
+
   it("never stores a raw access token in the job's error detail", async () => {
     const failing = new MockInstagramAdapter({
       failWith: new PublishingError("PLATFORM_ERROR", "boom", "provider said no"),

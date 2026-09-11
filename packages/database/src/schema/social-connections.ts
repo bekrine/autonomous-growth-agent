@@ -23,7 +23,9 @@ export const socialConnections = pgTable(
     platformAccountId: text("platform_account_id").notNull(),
     platformUsername: text("platform_username"),
     accountType: socialAccountTypeEnum("account_type").notNull().default("unknown"),
-    accessTokenEncrypted: text("access_token_encrypted").notNull(),
+    // Nullable so `revoke()` can destroy the credential while keeping the row
+    // for audit. A connection with a null token can never be `connected`.
+    accessTokenEncrypted: text("access_token_encrypted"),
     refreshTokenEncrypted: text("refresh_token_encrypted"),
     tokenExpiresAt: timestamp("token_expires_at", { withTimezone: true }),
     scopes: jsonb("scopes").notNull().default([]),

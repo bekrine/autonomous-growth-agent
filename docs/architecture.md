@@ -52,7 +52,7 @@ Media Generator  → generateImage tool → Policy → ImageGenerator → Object
 Reviewer         → quality / brand / safety / accuracy / duplication / platform-readiness
       ↓
    approved?
-   ├── yes → READY_FOR_PUBLISHING     (terminal for Phase 3 — nothing publishes here)
+   ├── yes → READY_FOR_PUBLISHING     (handed to the Phase 4 publishing pipeline)
    └── no  → regenerate with the reviewer's recommendedChanges
              (bounded by MAX_CONTENT_GENERATION_ATTEMPTS, default 3) → REVIEW_FAILED
 ```
@@ -76,6 +76,46 @@ bypasses the policy layer to call an image provider directly.
 
 Everything is selected by a factory from env config, and every one falls back to a mock so
 the whole pipeline runs with no API keys at all.
+
+## Publishing pipeline (Phase 4)
+
+Where content generation ends, publishing begins. The crucial difference is that this
+pipeline has an **irreversible external side effect**, so its design is built around
+"exactly once" rather than "eventually correct".
+
+```
+READY_FOR_PUBLISHING
+      ↓  operator clicks Publish/Schedule  (or an agent asks, if autonomy is on)
+PublishingService.enqueue()
+      ├── media validation      (JPEG-only, 2–10 carousel items, publicly fetchable URL)
+      ├── PolicyEngine          (kill switch → content → connection → media → rate limit → autonomy)
+      └── publishing_jobs row + outbox_events row   — one transaction
+      ↓  OutboxPublisher → `publishing` queue
+publishing-worker → PublishingService.execute(jobId)
+      ├── claim (conditional UPDATE — the concurrency guard)
+      ├── re-evaluate policy    (state may have changed since enqueue)
+      ├── decrypt Page token    (AES-256-GCM, in memory only)
+      └── InstagramAdapter.publish()
+             container → poll status_code → media_publish
+      ↓
+published  |  retry_scheduled (bounded)  |  failed
+```
+
+Three rules shape this:
+
+1. **The business logic lives in `PublishingService`, not the worker.** The processor is
+   ~20 lines of plumbing. The API and the queue therefore cannot drift, exactly as with
+   `AgentRunService` in Phase 2.
+2. **Idempotency is enforced by the database**, not by application bookkeeping — a UNIQUE
+   `idempotency_key` and a conditional claim. See `docs/database.md`.
+3. **Autonomy is off by default.** `AUTO_PUBLISH_ENABLED=false` makes `AutoPublishPolicy`
+   deny any `initiatedBy: "agent"` request, so the system cannot publish without a human
+   until that is deliberately switched on. The kill switch remains authoritative above it.
+
+Credentials never leave the server: `social_connections` stores AES-256-GCM ciphertext,
+the OAuth `code` and the access token are never logged or returned to the browser, and the
+dashboard only ever sees username/status/scopes. `docs/instagram-setup.md` covers the
+setup and the manual smoke test.
 
 ## Why a modular monolith
 
