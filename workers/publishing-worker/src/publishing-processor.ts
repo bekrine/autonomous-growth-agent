@@ -1,6 +1,6 @@
 import type { Job } from "bullmq";
 import type { PublishingService } from "@agent/agent-core";
-import type { Logger, PublishContentJobData } from "@agent/shared";
+import { NotFoundError, type Logger, type PublishContentJobData } from "@agent/shared";
 
 /**
  * Processes "publish-content" jobs by calling the exact same
@@ -17,7 +17,19 @@ export function createPublishingProcessor(publishingService: PublishingService, 
     const { publishingJobId } = job.data;
     logger.info({ jobId: job.id, publishingJobId }, "publishing-worker.job_received");
 
-    const result = await publishingService.execute(publishingJobId);
+    let result;
+    try {
+      result = await publishingService.execute(publishingJobId);
+    } catch (err) {
+      // A job row that does not exist can never appear later, so retrying is
+      // pointless — it just churns the queue. This happens with events left
+      // over from a database that was cleaned out from under the queue.
+      if (err instanceof NotFoundError) {
+        logger.warn({ publishingJobId }, "publishing-worker.job_row_missing_discarding");
+        return { publishingJobId, status: "discarded" as const };
+      }
+      throw err;
+    }
 
     // Only throw when another attempt could plausibly help. The service has
     // already recorded the terminal state; throwing on a permanent failure

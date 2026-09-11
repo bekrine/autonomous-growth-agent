@@ -53,7 +53,10 @@ export class OutboxPublisher {
       //   jobId    — deterministic id so a redelivered outbox event maps to
       //              the same BullMQ job rather than enqueueing twice
       const delayMs = typeof payload.delayMs === "number" && payload.delayMs > 0 ? payload.delayMs : undefined;
-      const jobId = `${event.aggregateType}:${event.aggregateId}`;
+      // ":" is BullMQ's own Redis key separator and is rejected in custom job
+      // ids ("Custom Id cannot contain :"), so it can never appear here — not
+      // as our separator, and not inside an aggregate id either.
+      const jobId = sanitizeJobId(`${event.aggregateType}-${event.aggregateId}`);
 
       await queue.add(event.eventType, payload, { delay: delayMs, jobId });
       await this.outboxRepository.markPublished(event.id);
@@ -63,4 +66,14 @@ export class OutboxPublisher {
       );
     }
   }
+}
+
+/**
+ * BullMQ rejects custom job ids containing ":" because that is its Redis key
+ * separator. Keeping this deterministic matters: the id is what makes a
+ * redelivered outbox event map onto the same BullMQ job instead of enqueueing
+ * a second one.
+ */
+export function sanitizeJobId(id: string): string {
+  return id.replace(/:/g, "-");
 }
