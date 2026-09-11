@@ -40,6 +40,10 @@ FROM base AS runtime
 ARG WORKSPACE_NAME
 ARG WORKSPACE_PATH
 ENV NODE_ENV=production
+# sharp rasterizes SVG via librsvg, which renders text with whatever fonts the
+# OS provides. Alpine ships none, so without these every glyph becomes a tofu
+# box (▯) in generated images — valid JPEG, unreadable content.
+RUN apk add --no-cache fontconfig ttf-dejavu && fc-cache -f
 ENV WORKER_ENTRY=${WORKSPACE_PATH}/dist/index.js
 COPY --from=build /app /app
 CMD node ${WORKER_ENTRY}

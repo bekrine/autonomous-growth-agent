@@ -52,8 +52,15 @@ Three new tables, all hanging off `content_posts`:
   `approved, score, quality_score, brand_score, safety_score, issues, warnings,
   recommended_changes`. Re-reviewing means generating a *new* version, never overwriting.
 - **`content_assets`** — asset **metadata only**: `asset_type, storage_key, url, mime_type,
-  provider, provider_asset_id, width, height, duration_seconds, status, error_message`.
-  The bytes live in object storage (`packages/media`'s `ObjectStorage`), never in Postgres.
+  provider, storage_provider, size_bytes, provider_asset_id, width, height,
+  duration_seconds, status, error_message`. The bytes live in object storage
+  (`packages/media`'s `ObjectStorage` — Cloudflare R2 in production), never in Postgres.
+  `provider` is the *generator* that produced the bytes (`mock`, `huggingface`);
+  `storage_provider` is the *ObjectStorage* holding them (`cloudflare-r2`, `local-disk`).
+  They answer different questions and change independently, which is why they are separate
+  columns (added in `0005_furry_valkyrie.sql`). `mime_type` describes the object as
+  **stored** — i.e. after SVG→JPEG conversion — so it always matches what a fetcher gets.
+  See [`storage.md`](storage.md).
 
 `content_posts` also gained `current_generation_version` and `generation_attempts`
 (denormalized for cheap reads; `content_generations` remains the source of truth), and

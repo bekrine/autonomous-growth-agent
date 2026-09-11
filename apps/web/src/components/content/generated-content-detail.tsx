@@ -1,6 +1,37 @@
-import type { ContentGenerationDto } from "@/lib/api";
+import type { ContentAssetDto, ContentGenerationDto } from "@/lib/api";
 import { StatusBadge } from "@/components/ui/status-badge";
 import { ContentPreview } from "./content-preview";
+
+function formatBytes(bytes: number): string {
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+}
+
+/**
+ * Renders the asset from its public storage URL (Cloudflare R2 in
+ * production), so what you see here is exactly the bytes Instagram will
+ * fetch. Videos get a player rather than an <img>.
+ */
+function AssetPreview({ asset }: { asset: ContentAssetDto }) {
+  const src = asset.publicUrl ?? asset.url;
+  if (!src || asset.status !== "completed") return null;
+
+  const isVideo = (asset.assetType ?? asset.type) === "video" || asset.mimeType?.startsWith("video/");
+
+  if (isVideo) {
+    return <video src={src} controls className="w-full rounded-md border border-surface-border bg-black" />;
+  }
+
+  return (
+    // eslint-disable-next-line @next/next/no-img-element -- remote R2 host, no loader configured
+    <img
+      src={src}
+      alt="Generated content asset"
+      className="w-full rounded-md border border-surface-border bg-surface object-cover"
+    />
+  );
+}
 
 function Section({ title, children }: { title: string; children: React.ReactNode }) {
   return (
@@ -189,13 +220,57 @@ export function GeneratedContentDetail({
           {generation.assets.length === 0 ? (
             <p className="text-sm text-white/30">No assets.</p>
           ) : (
-            <ul className="space-y-2">
+            <ul className="space-y-4">
               {generation.assets.map((a) => (
-                <li key={a.id} className="flex items-center justify-between gap-2 text-sm">
-                  <span className="text-white/60">
-                    {a.type} · {a.provider}
-                  </span>
-                  <StatusBadge status={a.status} />
+                <li key={a.id} className="space-y-2 rounded-lg border border-surface-border p-3">
+                  <div className="flex items-center justify-between gap-2 text-sm">
+                    <span className="text-white/60">
+                      {a.assetType ?? a.type} · {a.provider}
+                    </span>
+                    <StatusBadge status={a.status} />
+                  </div>
+
+                  <AssetPreview asset={a} />
+
+                  <dl className="grid grid-cols-2 gap-x-3 gap-y-1 text-xs text-white/40">
+                    {a.storageProvider ? (
+                      <>
+                        <dt>Storage</dt>
+                        <dd className="text-white/60">{a.storageProvider}</dd>
+                      </>
+                    ) : null}
+                    {a.mimeType ? (
+                      <>
+                        <dt>Type</dt>
+                        <dd className="text-white/60">{a.mimeType}</dd>
+                      </>
+                    ) : null}
+                    {a.width && a.height ? (
+                      <>
+                        <dt>Dimensions</dt>
+                        <dd className="text-white/60">
+                          {a.width}×{a.height}
+                        </dd>
+                      </>
+                    ) : null}
+                    {a.sizeBytes ? (
+                      <>
+                        <dt>Size</dt>
+                        <dd className="text-white/60">{formatBytes(a.sizeBytes)}</dd>
+                      </>
+                    ) : null}
+                  </dl>
+
+                  {a.publicUrl ?? a.url ? (
+                    <a
+                      href={(a.publicUrl ?? a.url)!}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="block truncate text-xs text-sky-400 underline"
+                    >
+                      Open asset ↗
+                    </a>
+                  ) : null}
                 </li>
               ))}
             </ul>

@@ -2,6 +2,7 @@ import { afterAll, describe, expect, it } from "vitest";
 import postgres from "postgres";
 import { createLogger } from "@agent/shared";
 import { MockLLMProvider, fakeFromSchema, type LLMProvider, type StructuredGenerationInput } from "@agent/llm";
+import { InMemoryObjectStorage } from "@agent/media";
 import {
   closeDatabase,
   createDatabase,
@@ -89,7 +90,7 @@ describe.skipIf(!databaseAvailable)("AgentOrchestrator.generateContent (integrat
   it("runs ContentIdea -> ContentCreator -> media -> Reviewer -> READY_FOR_PUBLISHING and records the full audit trail", async () => {
     const db = createDatabase(DATABASE_URL);
     const logger = createLogger({ name: "test", level: "silent" });
-    const system = buildAgentSystem({ db, llm: new MockLLMProvider(), logger });
+    const system = buildAgentSystem({ db, llm: new MockLLMProvider(), logger, objectStorage: new InMemoryObjectStorage() });
     const { account, idea } = await seedAccountWithIdea(db, system, "happy");
 
     const outcome = await system.orchestrator.generateContent(account.id, idea.id);
@@ -119,10 +120,10 @@ describe.skipIf(!databaseAvailable)("AgentOrchestrator.generateContent (integrat
     expect(decisionTypes).toContain("content_approved");
   });
 
-  it("regenerates on rejection up to the configured max, then marks REVIEW_FAILED without an infinite loop", async () => {
+  it("regenerates on rejection up to the configured max, then marks REVIEW_FAILED without an infinite loop", { timeout: 20_000 }, async () => {
     const db = createDatabase(DATABASE_URL);
     const logger = createLogger({ name: "test", level: "silent" });
-    const system = buildAgentSystem({ db, llm: new AlwaysRejectingReviewLLM(), logger, maxRegenerationAttempts: 3 });
+    const system = buildAgentSystem({ db, llm: new AlwaysRejectingReviewLLM(), logger, maxRegenerationAttempts: 3, objectStorage: new InMemoryObjectStorage() });
     const { account, idea } = await seedAccountWithIdea(db, system, "failure");
 
     const outcome = await system.orchestrator.generateContent(account.id, idea.id);
@@ -146,7 +147,7 @@ describe.skipIf(!databaseAvailable)("AgentOrchestrator.generateContent (integrat
   it("does not duplicate rows when the same content-generation run is retried after completion", async () => {
     const db = createDatabase(DATABASE_URL);
     const logger = createLogger({ name: "test", level: "silent" });
-    const system = buildAgentSystem({ db, llm: new MockLLMProvider(), logger });
+    const system = buildAgentSystem({ db, llm: new MockLLMProvider(), logger, objectStorage: new InMemoryObjectStorage() });
     const { account, idea } = await seedAccountWithIdea(db, system, "idempotent");
 
     const first = await system.orchestrator.generateContent(account.id, idea.id);

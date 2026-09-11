@@ -221,7 +221,7 @@ export class AgentOrchestrator {
         const generation = await this.persistGenerationAttempt(run.id, post.id, attempt, creatorResult, generatedContent);
 
         if (generatedContent.format !== "text") {
-          await this.generateAndPersistCoverImage(accountId, generation.id, generatedContent);
+          await this.generateAndPersistCoverImage(accountId, post.id, generation.id, generatedContent);
         }
 
         const reviewerResult = await this.contentAgents.reviewer.run(buildContext());
@@ -447,6 +447,7 @@ export class AgentOrchestrator {
   /** Calls the generateImage tool (policy-gated) for non-text formats and records the resulting asset. Failures don't fail the whole attempt — reviewer still evaluates the copy. */
   private async generateAndPersistCoverImage(
     accountId: string,
+    contentPostId: string,
     contentGenerationId: string,
     generatedContent: GeneratedContent,
   ): Promise<void> {
@@ -472,12 +473,23 @@ export class AgentOrchestrator {
       url: string;
       mimeType: string;
       provider: string;
+      storageProvider: string;
+      sizeBytes: number;
       providerAssetId?: string;
       width?: number;
       height?: number;
+      converted: boolean;
+      originalMimeType: string;
     }>;
     try {
-      result = await this.deps.toolRouter.call("generateImage", accountId, { prompt: visualDirection });
+      result = await this.deps.toolRouter.call("generateImage", accountId, {
+        prompt: visualDirection,
+        accountId,
+        contentId: contentPostId,
+        // The asset row already exists, so its id is what names the object —
+        // the database row and the stored object share one identity.
+        assetId: assetRow.id,
+      });
     } catch (error) {
       result = { success: false, error: error instanceof Error ? error.message : String(error) };
     }
@@ -497,7 +509,23 @@ export class AgentOrchestrator {
       providerAssetId: result.data.providerAssetId,
       width: result.data.width,
       height: result.data.height,
+      storageProvider: result.data.storageProvider,
+      sizeBytes: result.data.sizeBytes,
     });
+
+    this.deps.logger.info(
+      {
+        assetId: assetRow.id,
+        contentId: contentPostId,
+        objectKey: result.data.storageKey,
+        storageProvider: result.data.storageProvider,
+        size: result.data.sizeBytes,
+        mimeType: result.data.mimeType,
+        converted: result.data.converted,
+        originalMimeType: result.data.originalMimeType,
+      },
+      "content_generation.media_stored",
+    );
   }
 
   private async persistReviewResult(runId: string, contentGenerationId: string, reviewerResult: AgentResult, review: ReviewResult) {

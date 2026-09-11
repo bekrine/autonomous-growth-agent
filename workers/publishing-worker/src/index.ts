@@ -38,6 +38,13 @@ async function main() {
     objectStorage: createObjectStorage({
       localDir: env.STORAGE_LOCAL_DIR,
       publicBaseUrl: env.PUBLIC_MEDIA_BASE_URL,
+      r2: {
+        accountId: env.R2_ACCOUNT_ID,
+        accessKeyId: env.R2_ACCESS_KEY_ID,
+        secretAccessKey: env.R2_SECRET_ACCESS_KEY,
+        bucket: env.R2_BUCKET_NAME,
+        publicBaseUrl: env.R2_PUBLIC_BASE_URL,
+      },
     }),
     instagramPublishingEnabled: env.INSTAGRAM_PUBLISHING_ENABLED,
     metaApiVersion: env.META_API_VERSION,

@@ -1,21 +1,22 @@
 # Autonomous Growth Agent
 
 A production-oriented foundation for an autonomous AI agent that operates social-media
-accounts and continuously improves their growth. This repository is **not** the full
-autonomous system yet — Phase 1 built the scaffolding (monorepo, database, queues, API,
-policy/kill-switch layer, dashboard shell), Phase 2 made the planning agents reason with a
-real LLM, and Phase 3 turns their plans into reviewed, ready-to-publish content:
+accounts and continuously improves their growth. Phase 1 built the scaffolding (monorepo,
+database, queues, API, policy/kill-switch layer, dashboard shell), Phase 2 made the
+planning agents reason with a real LLM, Phase 3 turns their plans into reviewed content,
+and Phase 4 publishes it to a real Instagram account:
 
 ```
 Account → ResearchAgent → StrategyAgent → ContentPlannerAgent → content ideas
                                                                      ↓
    ContentCreatorAgent → media generation → ReviewerAgent → READY_FOR_PUBLISHING
-                              ↑                    ↓
-                              └──── regenerate ◄───┘  (bounded, max 3 attempts)
+                              ↑                    ↓                    ↓
+                              └──── regenerate ◄───┘         PublishingService → Instagram
+                                 (bounded, max 3 attempts)
 ```
 
-Nothing publishes yet — `READY_FOR_PUBLISHING` is deliberately the terminal state.
-Publishing to Instagram/Facebook is Phase 4.
+Publishing is **human-initiated by default** (`AUTO_PUBLISH_ENABLED=false`) — the agent
+can prepare posts autonomously, but a person approves each one until you decide otherwise.
 
 The end-state feedback loop this foundation is built to support:
 
@@ -25,8 +26,9 @@ OBSERVE → THINK → PLAN → CREATE → REVIEW → ACT → MEASURE → LEARN �
 
 See [`docs/architecture.md`](docs/architecture.md) for the full system design,
 [`docs/agents.md`](docs/agents.md) for how the agents reason and what they persist, and
-[`docs/local-development.md`](docs/local-development.md) to get running, and
-[`docs/instagram-setup.md`](docs/instagram-setup.md) to connect a real Instagram account.
+[`docs/local-development.md`](docs/local-development.md) to get running.
+[`docs/instagram-setup.md`](docs/instagram-setup.md) covers connecting a real Instagram
+account, and [`docs/storage.md`](docs/storage.md) how generated media reaches Cloudflare R2.
 
 ## Stack
 
@@ -40,8 +42,8 @@ See [`docs/architecture.md`](docs/architecture.md) for the full system design,
   (`LLMProvider.generateStructured`), retried on invalid output — never free-form text
   parsed with regex.
 - **Providers**: text via Hugging Face (free tier) or OpenAI; images via Hugging Face;
-  assets via local-disk or (later) S3/R2 — all behind interfaces, all defaulting to mocks
-  so the system runs with zero API keys.
+  asset storage via Cloudflare R2 (S3-compatible) with a local-disk fallback — all behind
+  interfaces, all defaulting to mocks so the system runs with zero API keys.
 - **Infra**: Docker, Docker Compose, npm workspaces monorepo
 
 ## Repository layout
@@ -62,9 +64,9 @@ packages/
                       the 3 functional agents, prompts, ResearchProvider
   llm/               Provider-agnostic LLM abstraction: generateText + generateStructured
                       (Zod-validated, retried), OpenAI + mock implementations
-  social-platforms/  SocialPlatform interface + Instagram/Facebook stub adapters
+  social-platforms/  SocialPlatform interface + real Instagram adapter, Facebook stub
   policies/          PolicyEngine, kill switch, concrete policies
-  media/             Provider-agnostic media-generation abstraction (stub)
+  media/             Image/video generation, JPEG conversion, and ObjectStorage (R2)
 migrations/          Generated SQL migrations (Drizzle Kit)
 docker/              Dockerfiles for api/web/workers
 docs/                Architecture and subsystem documentation
@@ -136,6 +138,10 @@ applying migrations, and the full verification walkthrough.
   for publishing, scheduling, cancelling and tracking jobs. Autonomy ships **off**
   (`AUTO_PUBLISH_ENABLED=false`): only human-initiated publishes are allowed until you
   turn it on. See [`docs/instagram-setup.md`](docs/instagram-setup.md).
+- **Media storage** — generated assets live in **Cloudflare R2** behind the existing
+  `ObjectStorage` abstraction, with SVG→JPEG conversion so every stored image is genuinely
+  publishable. Only `CloudflareR2Storage` knows R2 exists; the Instagram adapter just
+  receives a public URL. See [`docs/storage.md`](docs/storage.md).
 
 Still typed skeletons: `AnalyticsAgent`, `ExperimentAgent`, `CommunityAgent`.
 Still stubs by design: the `FacebookAdapter`, Instagram *reads* (analytics, comments —
@@ -152,8 +158,12 @@ Phases 5–6), real research/trend sources, video generation.
   before running multiple API/worker instances. (Publishing rate limits are the exception:
   they count rows in `publishing_jobs`, so they hold across processes.)
 - Instagram publishing requires media at a **public HTTPS URL** — Meta fetches it
-  server-side — and images must be **JPEG**. The mock image generator emits SVG, so a real
-  publish needs a real hosted JPEG.
+  server-side — and images must be **JPEG**. Both are now handled: generated media is
+  uploaded to **Cloudflare R2** and any SVG/PNG is re-encoded to JPEG with `sharp`
+  ([`docs/storage.md`](docs/storage.md)). Without `R2_*` configured the system falls back
+  to local disk, whose URLs Meta cannot reach.
+- R2's public development URL (`pub-*.r2.dev`) is rate-limited and not intended for
+  production traffic — attach a custom domain to the bucket before real load.
 - Long-lived Meta tokens expire in ~60 days and are not auto-refreshed yet; the dashboard
   surfaces the expiry and the connection must be re-authorized.
 - The Meta app runs in Development mode, so it can only publish to accounts with a role on

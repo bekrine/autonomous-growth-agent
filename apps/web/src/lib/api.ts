@@ -122,8 +122,17 @@ export function useStartAgentRun() {
 export interface ContentAssetDto {
   id: string;
   type: string;
+  assetType: string;
   url: string | null;
+  /** Publicly fetchable URL (Cloudflare R2 in production). Never carries credentials. */
+  publicUrl: string | null;
+  mimeType: string | null;
   provider: string;
+  /** Which ObjectStorage holds the bytes: "cloudflare-r2" | "local-disk". */
+  storageProvider: string | null;
+  sizeBytes: number | null;
+  width: number | null;
+  height: number | null;
   status: string;
 }
 

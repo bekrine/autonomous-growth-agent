@@ -49,7 +49,17 @@ export function createAppDependencies(): AppDependencies {
     huggingFaceProvider: env.HF_IMAGE_PROVIDER,
     imageGenerationEnabled: env.IMAGE_GENERATION_ENABLED,
   });
-  const objectStorage = createObjectStorage({ localDir: env.STORAGE_LOCAL_DIR, publicBaseUrl: env.PUBLIC_MEDIA_BASE_URL });
+  const objectStorage = createObjectStorage({
+    localDir: env.STORAGE_LOCAL_DIR,
+    publicBaseUrl: env.PUBLIC_MEDIA_BASE_URL,
+    r2: {
+      accountId: env.R2_ACCOUNT_ID,
+      accessKeyId: env.R2_ACCESS_KEY_ID,
+      secretAccessKey: env.R2_SECRET_ACCESS_KEY,
+      bucket: env.R2_BUCKET_NAME,
+      publicBaseUrl: env.R2_PUBLIC_BASE_URL,
+    },
+  });
   // Optional: without it the app still boots, but publishing and OAuth fail
   // closed with a clear "not configured" error rather than storing plaintext.
   const tokenEncryption = TokenEncryptionService.isConfigured(env.TOKEN_ENCRYPTION_KEY)

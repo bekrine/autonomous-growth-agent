@@ -47,7 +47,8 @@ Content Idea
       ↓
 Content Creator  → structured GeneratedContent (reel | carousel | image | text)
       ↓
-Media Generator  → generateImage tool → Policy → ImageGenerator → ObjectStorage
+Media Generator  → generateImage tool → Policy → ImageGenerator → MediaStorageService
+                                                                   → JPEG conversion → Cloudflare R2 → public URL
       ↓
 Reviewer         → quality / brand / safety / accuracy / duplication / platform-readiness
       ↓
@@ -72,10 +73,19 @@ bypasses the policy layer to call an image provider directly.
 | Text generation | `LLMProvider` (`packages/llm`) | `HuggingFaceProvider`, `OpenAIProvider` (both via `OpenAICompatibleProvider`), `MockLLMProvider` |
 | Image generation | `ImageGenerator` (`packages/media`) | `HuggingFaceImageGenerator`, `MockImageGenerator` |
 | Video generation | `VideoGenerator` (`packages/media`) | `MockVideoGenerator` only — real video is out of scope this phase |
-| Asset storage | `ObjectStorage` (`packages/media`) | `LocalObjectStorage` (served by the API at `/media`); `STORAGE_*` env vars are reserved for a real S3/R2 provider |
+| Asset storage | `ObjectStorage` (`packages/media`) | `CloudflareR2Storage` (real, S3-compatible), `LocalObjectStorage` (fallback, served by the API at `/media`), `InMemoryObjectStorage` (tests) |
+| Image conversion | `convertImageToJpeg` (`packages/media`) | `sharp` — re-encodes SVG/PNG/WebP to the JPEG Instagram requires |
 
 Everything is selected by a factory from env config, and every one falls back to a mock so
-the whole pipeline runs with no API keys at all.
+the whole pipeline runs with no API keys at all. Object storage follows the same rule: R2
+is used only when fully configured, otherwise local disk — see
+[`docs/storage.md`](storage.md).
+
+Generated media is what connects Phase 3 to Phase 4: Meta fetches media from its own
+servers, so an asset is only publishable once it has a genuinely public HTTPS URL. R2
+provides that URL and `sharp` guarantees the bytes are real JPEG, which is why the
+Instagram adapter never needs to know where media is stored — it receives a URL from the
+service layer and nothing more.
 
 ## Publishing pipeline (Phase 4)
 

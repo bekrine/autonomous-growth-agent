@@ -45,6 +45,10 @@ in server logs.
 
 ### Media validation
 
+Media reaches the adapter as a plain public URL. `StoredAssetMediaResolver` maps
+`content_assets` rows to `PublishMediaItem`s, so the adapter never learns whether the bytes
+live in Cloudflare R2, on local disk, or anywhere else — see [`storage.md`](storage.md).
+
 `packages/social-platforms/src/media-validation.ts` rejects bad media *before* any network
 call: Instagram images must be JPEG, carousels must hold 2–10 items, and
 `isPubliclyFetchableUrl()` refuses `localhost`, loopback, `.local` and RFC1918 hosts —

@@ -5,3 +5,7 @@ export * from "./errors.js";
 export * from "./factory.js";
 export * from "./providers/mock-image-generator.js";
 export * from "./providers/huggingface-image-generator.js";
+export * from "./providers/cloudflare-r2-storage.js";
+export * from "./object-key.js";
+export * from "./image-conversion.js";
+export * from "./media-storage-service.js";

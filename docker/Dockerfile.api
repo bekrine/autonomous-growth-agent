@@ -29,6 +29,10 @@ RUN npm run build --workspace=@agent/shared \
 
 FROM base AS runtime
 ENV NODE_ENV=production
+# sharp rasterizes SVG via librsvg, which renders text with whatever fonts the
+# OS provides. Alpine ships none, so without these every glyph becomes a tofu
+# box (▯) in generated images — valid JPEG, unreadable content.
+RUN apk add --no-cache fontconfig ttf-dejavu && fc-cache -f
 COPY --from=build /app /app
 EXPOSE 4000
 HEALTHCHECK --interval=15s --timeout=5s --start-period=10s --retries=5 \

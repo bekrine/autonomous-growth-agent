@@ -6,7 +6,11 @@ import type { ContentGenerationDto } from "@/lib/api";
  * alongside this without changing the generated content model.
  */
 export function ContentPreview({ generation }: { generation: ContentGenerationDto }) {
-  const image = generation.assets.find((a) => a.type === "image" && a.status === "completed" && a.url);
+  // Prefer the storage public URL — that is the one Instagram will fetch.
+  const image = generation.assets.find(
+    (a) => a.type === "image" && a.status === "completed" && (a.publicUrl ?? a.url),
+  );
+  const imageUrl = image ? (image.publicUrl ?? image.url) : null;
 
   return (
     <div className="mx-auto w-full max-w-sm overflow-hidden rounded-xl border border-surface-border bg-surface-raised">
@@ -15,11 +19,11 @@ export function ContentPreview({ generation }: { generation: ContentGenerationDt
       </p>
 
       <div className="flex aspect-square items-center justify-center border-b border-surface-border bg-surface">
-        {image?.url ? (
+        {imageUrl ? (
           // Plain <img>, not next/image: generated assets are served from a
           // runtime-configurable media host, so build-time optimization
           // doesn't apply.
-          <img src={image.url} alt={generation.altText ?? ""} className="h-full w-full object-cover" />
+          <img src={imageUrl} alt={generation.altText ?? ""} className="h-full w-full object-cover" />
         ) : (
           <p className="px-6 text-center text-xs text-white/30">
             {generation.format === "text" ? "Text-only post — no media" : "No media generated"}

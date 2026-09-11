@@ -34,3 +34,27 @@ describe("createImageGenerator", () => {
     expect(generator.name).toBe("huggingface");
   });
 });
+
+describe("MockImageGenerator text layout", () => {
+  it("wraps a long prompt across lines instead of overflowing the canvas", async () => {
+    const longPrompt =
+      "a very long visual direction that keeps going and going well past the width of a single line so it must wrap";
+    const svg = (await new MockImageGenerator().generate({ prompt: longPrompt })).imageData.toString("utf-8");
+
+    const textLines = svg.match(/<text[^>]*font-size="20"/g) ?? [];
+    expect(textLines.length).toBeGreaterThan(1);
+    // Every wrapped fragment stays within the width budget.
+    for (const fragment of svg.match(/font-size="20"[^>]*>([^<]*)</g) ?? []) {
+      expect(fragment.split(">")[1]!.length).toBeLessThanOrEqual(52);
+    }
+  });
+
+  it("escapes markup so a prompt cannot break the SVG", async () => {
+    const svg = (
+      await new MockImageGenerator().generate({ prompt: "<script>alert(1)</script> & more" })
+    ).imageData.toString("utf-8");
+
+    expect(svg).not.toContain("<script>");
+    expect(svg).toContain("&lt;script&gt;");
+  });
+});

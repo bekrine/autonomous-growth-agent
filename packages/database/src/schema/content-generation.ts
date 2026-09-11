@@ -78,7 +78,16 @@ export const contentAssets = pgTable(
     storageKey: text("storage_key"),
     url: text("url"),
     mimeType: text("mime_type"),
+    /**
+     * Which ImageGenerator/VideoGenerator produced the bytes ("mock",
+     * "huggingface"). Distinct from `storageProvider`, which records where
+     * they were put — the two answer different questions and change
+     * independently.
+     */
     provider: text("provider").notNull(),
+    /** "cloudflare-r2" | "local-disk" | "in-memory" — the ObjectStorage that holds this object. */
+    storageProvider: text("storage_provider"),
+    sizeBytes: integer("size_bytes"),
     providerAssetId: text("provider_asset_id"),
     width: integer("width"),
     height: integer("height"),

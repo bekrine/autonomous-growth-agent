@@ -130,6 +130,23 @@ HF_IMAGE_PROVIDER=fal-ai
 HF_IMAGE_MODEL=black-forest-labs/FLUX.1-schnell
 ```
 
+## Media storage
+
+With no `R2_*` variables set, generated assets are written to `./storage` and served by the
+API at `/media`. That is fine for local work, but those URLs are **not reachable by Meta**,
+so publishing to Instagram requires Cloudflare R2. Set the `R2_*` variables from
+`.env.example` and the factory switches over automatically — see
+[`storage.md`](storage.md).
+
+Verify a real bucket without touching the rest of the stack:
+
+```bash
+set -a && source .env && set +a
+R2_INTEGRATION_TEST=true npx vitest run packages/media/src/__tests__/r2-integration.test.ts
+```
+
+It writes under the `_test/` prefix and deletes what it created. Never enable it in CI.
+
 A media failure never fails the whole generation — the asset row records `failed` and the
 Reviewer still evaluates the copy.
 

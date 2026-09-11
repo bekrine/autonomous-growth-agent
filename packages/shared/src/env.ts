@@ -71,9 +71,32 @@ const envSchema = z.object({
   STORAGE_BUCKET: z.string().optional().default(""),
   STORAGE_ACCESS_KEY: z.string().optional().default(""),
   STORAGE_SECRET_KEY: z.string().optional().default(""),
-  // Local-disk object storage used until a real STORAGE_* provider is wired in.
+  // Local-disk object storage — the fallback when R2 is not configured.
   STORAGE_LOCAL_DIR: z.string().optional().default("./storage"),
   PUBLIC_MEDIA_BASE_URL: z.string().optional().default("http://localhost:4000/media"),
+
+  /**
+   * Cloudflare R2 (S3-compatible). All optional so the app still boots
+   * unconfigured and transparently falls back to local-disk storage; the
+   * factory only selects R2 when account id, key, secret, bucket and public
+   * base URL are ALL present, since a half-configured bucket would produce
+   * URLs Meta cannot fetch.
+   *
+   * These are server-side secrets. They must never be sent to the browser,
+   * logged, or embedded in an error message.
+   */
+  R2_ACCOUNT_ID: z.string().optional().default(""),
+  R2_ACCESS_KEY_ID: z.string().optional().default(""),
+  R2_SECRET_ACCESS_KEY: z.string().optional().default(""),
+  R2_BUCKET_NAME: z.string().optional().default(""),
+  /** Cloudflare public development URL, e.g. https://pub-<id>.r2.dev — public by design. */
+  R2_PUBLIC_BASE_URL: z.string().optional().default(""),
+  /** Opt-in switch for the test that talks to the real bucket. Never enable in CI. */
+  R2_INTEGRATION_TEST: z
+    .string()
+    .optional()
+    .default("false")
+    .transform((v) => v === "true"),
 
   MAX_CONTENT_GENERATION_ATTEMPTS: z.coerce.number().int().min(1).max(10).optional().default(3),
   MAX_DAILY_MEDIA_GENERATIONS: z.coerce.number().int().min(0).optional().default(50),

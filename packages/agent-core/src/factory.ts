@@ -33,7 +33,7 @@ import {
 } from "@agent/policies";
 import type { Logger, TokenEncryptionService } from "@agent/shared";
 import type { ImageGenerator, ObjectStorage } from "@agent/media";
-import { createImageGenerator, createObjectStorage } from "@agent/media";
+import { createImageGenerator, createObjectStorage, MediaStorageService } from "@agent/media";
 import { ToolRouter } from "./tool-router.js";
 import {
   CreateContentBriefTool,
@@ -71,6 +71,7 @@ export interface BuildAgentSystemOptions {
   imageGenerator?: ImageGenerator;
   /** Swappable — defaults to local-disk storage until a real STORAGE_* provider is configured. */
   objectStorage?: ObjectStorage;
+  mediaStorage?: MediaStorageService;
   /** Hard ceiling on ContentCreator/Reviewer regeneration attempts. Defaults to 3. */
   maxRegenerationAttempts?: number;
   /** Per-account daily cap on media-generation calls. Defaults to 50. */
@@ -117,7 +118,11 @@ export function buildAgentSystem(options: BuildAgentSystemOptions) {
   const killSwitch = options.killSwitch ?? new KillSwitchStore();
 
   const imageGenerator = options.imageGenerator ?? createImageGenerator({});
-  const objectStorage = options.objectStorage ?? createObjectStorage({ localDir: "./storage", publicBaseUrl: "http://localhost:4000/media" });
+  const objectStorage =
+    options.objectStorage ?? createObjectStorage({ localDir: "./storage", publicBaseUrl: "http://localhost:4000/media" });
+  // One service wraps whichever ObjectStorage was selected; nothing downstream
+  // knows whether that is R2, local disk, or the in-memory test double.
+  const mediaStorage = options.mediaStorage ?? new MediaStorageService(objectStorage, options.logger);
 
   const publishingLimits = options.publishingLimits ?? {
     maxPerDay: 5,
@@ -170,7 +175,7 @@ export function buildAgentSystem(options: BuildAgentSystemOptions) {
       new GetPostAnalyticsTool(platforms),
       new GetCommentsTool(platforms),
       new UpdateStrategyTool(strategyRepository),
-      new GenerateImageTool(imageGenerator, objectStorage),
+      new GenerateImageTool(imageGenerator, mediaStorage),
     ],
     policyEngine,
   );
@@ -229,6 +234,7 @@ export function buildAgentSystem(options: BuildAgentSystemOptions) {
     contextLoader,
     imageGenerator,
     objectStorage,
+    mediaStorage,
     repositories: {
       socialAccountRepository,
       agentProfileRepository,

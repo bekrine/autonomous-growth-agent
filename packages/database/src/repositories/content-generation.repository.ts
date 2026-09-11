@@ -123,6 +123,8 @@ export class ContentGenerationRepository {
       width?: number;
       height?: number;
       errorMessage?: string;
+      storageProvider?: string;
+      sizeBytes?: number;
     },
   ) {
     const [row] = await this.db

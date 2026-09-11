@@ -148,7 +148,18 @@ export class AgentRunService {
       warnings: unknown;
       recommendedChanges: unknown;
     } | null,
-    assets: { id: string; assetType: string; url: string | null; provider: string; status: string }[],
+    assets: {
+      id: string;
+      assetType: string;
+      url: string | null;
+      provider: string;
+      status: string;
+      mimeType: string | null;
+      storageProvider: string | null;
+      sizeBytes: number | null;
+      width: number | null;
+      height: number | null;
+    }[],
   ) {
     const payload = (generation.payload ?? {}) as Record<string, unknown>;
     return {
@@ -171,7 +182,22 @@ export class AgentRunService {
       body: (payload as { body?: string }).body,
       keywords: payload.keywords as string[] | undefined,
       contentWarnings: payload.contentWarnings as string[] | undefined,
-      assets: assets.map((a) => ({ id: a.id, type: a.assetType, url: a.url, provider: a.provider, status: a.status })),
+      // Public-facing asset shape. `publicUrl` is the only storage detail the
+      // browser needs; bucket names, keys and credentials never appear here.
+      assets: assets.map((a) => ({
+        id: a.id,
+        type: a.assetType,
+        assetType: a.assetType,
+        url: a.url,
+        publicUrl: a.url,
+        mimeType: a.mimeType,
+        provider: a.provider,
+        storageProvider: a.storageProvider,
+        sizeBytes: a.sizeBytes,
+        width: a.width,
+        height: a.height,
+        status: a.status,
+      })),
       review: review
         ? {
             approved: review.approved,
