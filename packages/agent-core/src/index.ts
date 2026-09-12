@@ -11,3 +11,4 @@ export * from "./prompts/index.js";
 export * from "./agent-run-service.js";
 export * from "./errors.js";
 export * from "./publishing/index.js";
+export * from "./analytics/index.js";

@@ -14,7 +14,8 @@ import {
   StrategyRepository,
 } from "@agent/database";
 import type { LLMProvider } from "@agent/llm";
-import { SocialPlatformRegistry } from "@agent/social-platforms";
+import { SocialPlatformRegistry, InstagramAnalyticsProvider, MetaGraphClient } from "@agent/social-platforms";
+import type { PlatformAnalyticsProvider } from "@agent/social-platforms";
 import {
   AutoPublishPolicy,
   ContentApprovalPolicy,
@@ -47,6 +48,7 @@ import {
   UpdateStrategyTool,
 } from "./tools/index.js";
 import {
+  AnalyticsAgent,
   ContentCreatorAgent,
   ContentPlannerAgent,
   ResearchAgent,
@@ -58,6 +60,8 @@ import { AgentContextLoader } from "./context/agent-context-loader.js";
 import { MockResearchProvider, type ResearchProvider } from "./research/research-provider.js";
 import { AgentRunService } from "./agent-run-service.js";
 import { PublishingService } from "./publishing/publishing-service.js";
+import { AnalyticsService } from "./analytics/analytics-service.js";
+import type { CollectionWindow } from "./analytics/collection-windows.js";
 import { StoredAssetMediaResolver } from "./publishing/public-media-resolver.js";
 
 export interface BuildAgentSystemOptions {
@@ -88,6 +92,11 @@ export interface BuildAgentSystemOptions {
   autoPublishEnabled?: boolean;
   publishingLimits?: { maxPerDay: number; maxPerHour: number; minMinutesBetweenPosts: number };
   maxPublishAttempts?: number;
+  /** Phase 5 analytics. All optional — omitted means "use defaults"/"no provider". */
+  analyticsProvider?: PlatformAnalyticsProvider | null;
+  analyticsCollectionWindows?: CollectionWindow[];
+  analyticsBaselinePostCount?: number;
+  analyticsMaxCollectionAttempts?: number;
 }
 
 /**
@@ -165,6 +174,34 @@ export function buildAgentSystem(options: BuildAgentSystemOptions) {
     maxAttempts: options.maxPublishAttempts ?? 3,
   });
 
+  // Real Meta insights only when publishing is enabled and credentials exist;
+  // otherwise analytics has no provider and degrades to "not configured"
+  // rather than inventing numbers.
+  const analyticsProvider =
+    options.analyticsProvider ??
+    (options.instagramPublishingEnabled && options.metaApiVersion
+      ? new InstagramAnalyticsProvider(
+          new MetaGraphClient({
+            apiVersion: options.metaApiVersion,
+            host: options.metaGraphHost ?? "https://graph.facebook.com",
+          }),
+        )
+      : null);
+
+  const analyticsService = new AnalyticsService({
+    analyticsRepository,
+    contentRepository,
+    contentGenerationRepository,
+    publishingJobRepository,
+    socialConnectionRepository,
+    analyticsProvider,
+    tokenEncryption: options.tokenEncryption ?? null,
+    logger: options.logger,
+    collectionWindows: options.analyticsCollectionWindows,
+    baselinePostCount: options.analyticsBaselinePostCount,
+    maxCollectionAttempts: options.analyticsMaxCollectionAttempts,
+  });
+
   const toolRouter = new ToolRouter(
     [
       new SearchWebTool(),
@@ -210,6 +247,16 @@ export function buildAgentSystem(options: BuildAgentSystemOptions) {
     },
     [new ResearchAgent(researchProvider), new StrategyAgent(), new ContentPlannerAgent()],
     { contentCreator: new ContentCreatorAgent(), reviewer: new ReviewerAgent() },
+    // Analytics runs on its own entry point (analyzePerformance), not in the
+    // planning pipeline: interpretation should happen when asked for, not on
+    // every run.
+    new AnalyticsAgent(),
+    {
+      analyticsService,
+      analyticsRepository,
+      socialAccountRepository,
+      agentProfileRepository,
+    },
   );
 
   const agentRunService = new AgentRunService({
@@ -226,6 +273,8 @@ export function buildAgentSystem(options: BuildAgentSystemOptions) {
     orchestrator,
     agentRunService,
     publishingService,
+    analyticsService,
+    analyticsProvider,
     mediaResolver,
     platforms,
     toolRouter,

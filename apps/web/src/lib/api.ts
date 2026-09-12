@@ -396,3 +396,142 @@ export function useCancelPublishingJob() {
     },
   });
 }
+
+// --- Phase 5: analytics ---
+
+export interface AnalyticsMetricDto {
+  name: string;
+  platformName?: string;
+  value?: number;
+  unit: string;
+  /** false means the platform did not provide it — render "Not available", never 0. */
+  available: boolean;
+  unavailableReason?: string;
+  source: string;
+  computation?: { formula: string; inputs: Record<string, number> };
+}
+
+export interface AnalyticsOverviewDto {
+  followers: { current?: number; change?: number; observations: number };
+  content: {
+    published: number;
+    withAnalytics: number;
+    averageReach?: number;
+    averageEngagementRate?: number;
+  };
+  baseline: { sampleSize: number; metrics: Record<string, number> };
+  collectionStatus: Record<string, number>;
+  topPosts: AnalyticsPostDto[];
+  insights: AnalyticsInsightDto[];
+}
+
+export interface AnalyticsPostDto {
+  contentPostId: string | null;
+  contentGenerationId: string | null;
+  externalPostId: string | null;
+  capturedAt: string;
+  outcome: string | null;
+  publishedAt: string | null;
+  postingHourUtc: number | null;
+  postingDayUtc: string | null;
+  generationVersion: number | null;
+  metrics: AnalyticsMetricDto[];
+  performanceScore?: number;
+  performanceScoreCoverage: number;
+  performanceScoreFormula: string;
+}
+
+export interface AnalyticsInsightDto {
+  id: string;
+  type: string;
+  dimension: string | null;
+  dimensionValue: string | null;
+  finding: string;
+  evidence: unknown;
+  confidence?: number;
+  sampleSize?: number;
+  createdAt: string;
+}
+
+export interface AnalyticsGrowthDto {
+  series: { capturedAt: string; day: string | null; followers?: number }[];
+  daily: { day: string | null; followers?: number; gained?: number }[];
+  current?: number;
+  change?: number;
+  observations: number;
+}
+
+export interface PostAnalyticsDto {
+  contentPostId: string;
+  status: string;
+  externalPostId: string | null;
+  platform: string | null;
+  publishedAt: string | null;
+  lastSnapshotAt: string | null;
+  nextSnapshotAt: string | null;
+  lastError: string | null;
+  metrics: AnalyticsMetricDto[];
+  history: { id: string; capturedAt: string; collectionWindow: string | null; outcome: string | null }[];
+}
+
+export function useAnalyticsOverview(accountId: string | null) {
+  return useQuery({
+    queryKey: ["analytics-overview", accountId],
+    queryFn: () => fetchJson<AnalyticsOverviewDto>(`/analytics/accounts/${accountId}/overview`),
+    enabled: Boolean(accountId),
+  });
+}
+
+export function useAnalyticsPosts(accountId: string | null, sortBy: string) {
+  return useQuery({
+    queryKey: ["analytics-posts", accountId, sortBy],
+    queryFn: () => fetchJson<AnalyticsPostDto[]>(`/analytics/accounts/${accountId}/posts?sortBy=${sortBy}`),
+    enabled: Boolean(accountId),
+  });
+}
+
+export function useAnalyticsGrowth(accountId: string | null) {
+  return useQuery({
+    queryKey: ["analytics-growth", accountId],
+    queryFn: () => fetchJson<AnalyticsGrowthDto>(`/analytics/accounts/${accountId}/growth`),
+    enabled: Boolean(accountId),
+  });
+}
+
+export function usePostAnalytics(contentPostId: string | null) {
+  return useQuery({
+    queryKey: ["post-analytics", contentPostId],
+    queryFn: () => fetchJson<PostAnalyticsDto>(`/analytics/posts/${contentPostId}`),
+    enabled: Boolean(contentPostId),
+  });
+}
+
+export function useRunAnalyticsAgent() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async (accountId: string) => {
+      const response = await fetch(`/api/backend/analytics/accounts/${accountId}/analyze`, { method: "POST" });
+      if (!response.ok) throw new Error("Failed to run the analytics agent.");
+      return response.json();
+    },
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ["analytics-overview"] });
+    },
+  });
+}
+
+export function useCollectAnalytics() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async (contentPostId: string) => {
+      const response = await fetch(`/api/backend/analytics/posts/${contentPostId}/collect`, { method: "POST" });
+      const payload = await response.json().catch(() => ({}));
+      if (!response.ok && response.status !== 502) throw new Error("Failed to collect analytics.");
+      return payload as { status: string; reason?: string };
+    },
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ["post-analytics"] });
+      void queryClient.invalidateQueries({ queryKey: ["analytics-overview"] });
+    },
+  });
+}

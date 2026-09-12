@@ -1,0 +1,2 @@
+ALTER TABLE "analytics_snapshots" DROP CONSTRAINT "analytics_snapshots_idempotency_key";--> statement-breakpoint
+ALTER TABLE "analytics_snapshots" ADD CONSTRAINT "analytics_snapshots_idempotency_key" UNIQUE NULLS NOT DISTINCT("social_account_id","content_post_id","metric_type","collection_window");

@@ -32,6 +32,15 @@ export interface AgentRunServiceDeps {
 export class AgentRunService {
   constructor(private readonly deps: AgentRunServiceDeps) {}
 
+  /**
+   * Interprets already-collected analytics. Kept here so the API route and any
+   * future scheduled job share one implementation — the same rule as startRun.
+   * This never collects: collection is the worker's job and is deterministic.
+   */
+  async analyzePerformance(accountId: string) {
+    return this.deps.orchestrator.analyzePerformance(accountId);
+  }
+
   async startRun(accountId: string) {
     const outcome = await this.deps.orchestrator.executeRun(accountId);
     const response = await this.buildRunResponse(outcome.runId, outcome.status, accountId);

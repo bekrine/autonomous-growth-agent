@@ -8,3 +8,5 @@ export * from "./adapters/instagram/graph-client.js";
 export * from "./adapters/facebook-adapter.js";
 export * from "./instagram-auth.js";
 export * from "./media-validation.js";
+export * from "./analytics-types.js";
+export * from "./adapters/instagram/instagram-analytics.js";

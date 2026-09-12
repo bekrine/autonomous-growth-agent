@@ -12,6 +12,7 @@ import {
 import { StatusBadge } from "@/components/ui/status-badge";
 import { GeneratedContentDetail } from "./generated-content-detail";
 import { PublishActions } from "./publish-actions";
+import { PostAnalyticsPanel } from "@/components/analytics/post-analytics-panel";
 
 /**
  * Content ideas come from a Phase 2 agent run, so this panel lets you
@@ -125,6 +126,9 @@ export function ContentGenerationPanel() {
             contentStatus={content.status}
             accountId={effectiveAccountId || null}
           />
+
+          {/* Only meaningful once the post is live and being measured. */}
+          {content.status === "published" ? <PostAnalyticsPanel contentPostId={content.contentId} /> : null}
 
           {generation ? (
             <GeneratedContentDetail generation={generation} versions={versionsQuery.data?.versions ?? []} />

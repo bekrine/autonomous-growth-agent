@@ -4,8 +4,11 @@ import {
   ContentRepository,
   ResearchRepository,
   StrategyRepository,
+  type AgentProfileRepository,
+  type AnalyticsRepository,
   type Database,
   type DrizzleClient,
+  type SocialAccountRepository,
 } from "@agent/database";
 import type { AgentName, Logger } from "@agent/shared";
 import { NotFoundError } from "@agent/shared";
@@ -20,6 +23,9 @@ import type { StrategyResult } from "./prompts/strategy.prompt.js";
 import type { ContentPlanResult } from "./prompts/content-planner.prompt.js";
 import type { GeneratedContent } from "./prompts/content-creator/index.js";
 import type { ReviewResult } from "./prompts/reviewer/index.js";
+import type { AnalyticsInsightResult } from "./prompts/analytics/index.js";
+import type { AnalyticsService } from "./analytics/analytics-service.js";
+import { buildAnalyticsAgentInput } from "./analytics/performance-analysis.js";
 
 export interface OrchestratorDependencies {
   db: Database;
@@ -36,6 +42,22 @@ export interface OrchestratorDependencies {
   maxRegenerationAttempts: number;
   /** Recorded on the asset row up-front so a failed generation still says which provider was attempted. */
   imageGeneratorName: string;
+}
+
+/** Data the analytics path needs; separate from OrchestratorDependencies so the rest stays untouched. */
+export interface OrchestratorAnalyticsDependencies {
+  analyticsService: AnalyticsService;
+  analyticsRepository: AnalyticsRepository;
+  socialAccountRepository: SocialAccountRepository;
+  agentProfileRepository: AgentProfileRepository;
+}
+
+export interface AnalyticsAnalysisOutcome {
+  runId: string;
+  status: "completed" | "failed";
+  postCount: number;
+  insights?: AnalyticsInsightResult;
+  error?: string;
 }
 
 export interface AgentRunOutcome {
@@ -73,6 +95,8 @@ export class AgentOrchestrator {
     private readonly deps: OrchestratorDependencies,
     private readonly agents: Agent[],
     private readonly contentAgents: { contentCreator: Agent; reviewer: Agent },
+    private readonly analyticsAgent?: Agent,
+    private readonly analyticsDeps?: OrchestratorAnalyticsDependencies,
   ) {}
 
   /**
@@ -264,6 +288,84 @@ export class AgentOrchestrator {
       await agentRunRepository.markFinished(run.id, "failed", message);
       logger.error({ runId: run.id, contentPostId: post.id, error: message }, "content_generation.failed");
       return { runId: run.id, contentPostId: post.id, status: "generation_failed", generationVersion: post.currentGenerationVersion, error: message };
+    }
+  }
+
+  /**
+   * Runs the AnalyticsAgent over already-measured data.
+   *
+   * A separate entry point from executeRun on purpose: this is interpretation,
+   * not planning. It reads snapshots, never the platform, and it writes only
+   * insights — it cannot touch strategy_versions, which is what keeps Phase 5
+   * at "measured" rather than "learned".
+   */
+  async analyzePerformance(accountId: string): Promise<AnalyticsAnalysisOutcome> {
+    const { agentRunRepository, contextLoader, toolRouter, llm, logger } = this.deps;
+
+    if (!this.analyticsAgent || !this.analyticsDeps) {
+      throw new Error("AnalyticsAgent is not configured on this orchestrator");
+    }
+
+    const run = await agentRunRepository.create(accountId);
+    await agentRunRepository.markRunning(run.id);
+    logger.info({ runId: run.id, accountId }, "analytics_run.started");
+
+    try {
+      const contextData = await contextLoader.load(accountId);
+      const analyticsInput = await buildAnalyticsAgentInput({
+        analyticsService: this.analyticsDeps.analyticsService,
+        analyticsRepository: this.analyticsDeps.analyticsRepository,
+        socialAccountRepository: this.analyticsDeps.socialAccountRepository,
+        agentProfileRepository: this.analyticsDeps.agentProfileRepository,
+        socialAccountId: accountId,
+      });
+
+      const result = await this.analyticsAgent.run({
+        ...contextData,
+        analyticsInput,
+        runId: run.id,
+        accountId,
+        logger,
+        llm,
+        tools: toolRouter,
+        previousResults: {},
+        targetContentIdea: null,
+        regenerationFeedback: [],
+      });
+
+      // Decisions land in the existing audit trail; insights are additionally
+      // persisted as queryable rows for the dashboard and later phases.
+      await this.persistGenericResult(run.id, "analytics", result);
+
+      const insights = (result.data as { insights?: AnalyticsInsightResult } | undefined)?.insights;
+      if (insights && insights.observations.length > 0) {
+        await this.analyticsDeps.analyticsRepository.saveInsights(
+          insights.observations.map((observation) => ({
+            socialAccountId: accountId,
+            agentRunId: run.id,
+            insightType: observation.type,
+            dimension: observation.dimension,
+            dimensionValue: observation.dimensionValue,
+            finding: observation.finding,
+            evidence: { evidence: observation.evidence, summary: insights.summary, dataQuality: insights.dataQuality },
+            confidence: observation.confidence,
+            sampleSize: observation.sampleSize,
+          })),
+        );
+      }
+
+      await agentRunRepository.markFinished(run.id, "completed");
+      logger.info(
+        { runId: run.id, accountId, observations: insights?.observations.length ?? 0, postCount: analyticsInput.postCount },
+        "analytics_run.completed",
+      );
+
+      return { runId: run.id, status: "completed", postCount: analyticsInput.postCount, insights };
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      await agentRunRepository.markFinished(run.id, "failed", message);
+      logger.error({ runId: run.id, accountId, error: message }, "analytics_run.failed");
+      return { runId: run.id, status: "failed", postCount: 0, error: message };
     }
   }
 

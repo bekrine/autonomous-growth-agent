@@ -5,8 +5,9 @@
 Defined once in `packages/shared/src/queues.ts` (`QUEUE_NAMES`) so the API (producer) and
 workers (consumers) can't drift:
 
-- `research`, `strategy`, `analytics`, `experiments` — per-stage placeholder queues
-  (Phase 1), unused by the real flows so far.
+- `research`, `strategy`, `experiments` — per-stage placeholder queues (Phase 1), unused
+  by the real flows so far.
+- `analytics` — **real** (Phase 5). Schedules and performs bounded metric collection.
 - `publishing` — **real** (Phase 4). Publishes one approved content post to a connected
   platform account.
 - `agent-run` — runs the full Research → Strategy → ContentPlanner pipeline for one
@@ -20,11 +21,45 @@ workers (consumers) can't drift:
 |---|---|
 | `workers/agent-worker` | `research`, `strategy`, `experiments` (placeholders), `agent-run` + `content` (real) |
 | `workers/publishing-worker` | `publishing` (real) |
-| `workers/analytics-worker` | `analytics` |
+| `workers/analytics-worker` | `analytics` (real) |
 
 The remaining per-stage queues still run placeholder processors (`processors.ts`): they log
-the job and acknowledge it. `agent-run`, `content` and `publishing` are fully implemented —
-see below.
+the job and acknowledge it. `agent-run`, `content`, `publishing` and `analytics` are fully
+implemented — see below.
+
+## The `analytics` queue
+
+Two job kinds share it:
+
+```
+content.published    ← emitted by PublishingService through the outbox on a successful
+                       publish; registers the post for collection
+collect-analytics    ← one bounded collection pass; with no contentPostId it sweeps
+                       everything currently due
+```
+
+```
+BullMQ job
+      ↓
+createAnalyticsProcessor (job plumbing only — no metric logic, no Meta calls)
+      ↓
+AnalyticsService.schedulePostCollection() | .collectForPost()
+      ↓
+InstagramAnalyticsProvider → Meta Graph API
+```
+
+The sweep is a **repeatable BullMQ job** (`ANALYTICS_SWEEP_INTERVAL_MINUTES`, default 15),
+registered with a stable `jobId` so re-registering on boot updates the schedule instead of
+stacking duplicates. `setInterval`/`setTimeout` are deliberately not used: the cadence must
+survive a restart, and several worker replicas must not each run their own timer.
+
+Three things keep this from storming the Meta API: worker concurrency defaults to 1, only
+posts whose `next_snapshot_at` has arrived are selected, and the per-post collection ladder
+is finite. See [`analytics.md`](analytics.md).
+
+A failed collection is **not** a job failure — `AnalyticsService` has already recorded the
+outcome and decided whether another attempt is worthwhile, so throwing would add a second,
+uncoordinated retry loop on top of it.
 
 ## The `publishing` queue
 

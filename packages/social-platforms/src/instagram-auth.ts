@@ -22,6 +22,12 @@ export interface InstagramOAuthConfig {
 export const INSTAGRAM_SCOPES = [
   "instagram_basic",
   "instagram_content_publish",
+  // Required for every /insights call (Phase 5). Without it the Graph API
+  // rejects media and account insights with "(#10) Application does not have
+  // permission for this action" — basic fields like followers_count still
+  // work, but no metrics do. A connection authorized before this scope was
+  // added must be reconnected.
+  "instagram_manage_insights",
   "pages_show_list",
   "pages_read_engagement",
 ] as const;

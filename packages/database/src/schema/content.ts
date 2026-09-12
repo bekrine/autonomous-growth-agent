@@ -63,6 +63,14 @@ export const contentPosts = pgTable(
     generationAttempts: integer("generation_attempts").notNull().default(0),
     scheduledAt: timestamp("scheduled_at", { withTimezone: true }),
     publishedAt: timestamp("published_at", { withTimezone: true }),
+    /**
+     * Experiment membership (Phase 6). Carried now, and nullable, so posts
+     * published during Phase 5 can still be attributed once experiments exist
+     * — retrofitting this later would leave a blind spot in the history.
+     * No experiment logic reads these yet.
+     */
+    experimentId: uuid("experiment_id"),
+    experimentVariantId: uuid("experiment_variant_id"),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
   },

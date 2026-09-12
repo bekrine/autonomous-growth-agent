@@ -127,6 +127,37 @@ the OAuth `code` and the access token are never logged or returned to the browse
 dashboard only ever sees username/status/scopes. `docs/instagram-setup.md` covers the
 setup and the manual smoke test.
 
+## Analytics pipeline (Phase 5)
+
+Publishing produces an irreversible effect; analytics measures what that effect achieved.
+
+```
+PublishingService (published)
+      ↓  outbox: content.published            — same transaction as the publish
+analytics-worker → AnalyticsService.schedulePostCollection()
+      ↓  (repeatable sweep, bounded window ladder: ~1h, ~6h, ~24h, ~72h)
+AnalyticsService.collectForPost()
+      ├── InstagramAnalyticsProvider → Meta Graph API
+      ├── normalize      (platform names → canonical; unavailable stays unavailable)
+      ├── derive         (engagement/share/save rates — refuse to divide by zero)
+      └── persist        (raw snapshot + normalized metrics, append-only)
+      ↓
+baseline (median) + performance score  → AnalyticsAgent → insights → dashboard
+```
+
+Four rules shape it:
+
+1. **Raw is never replaced by derived.** Snapshots keep the sanitized provider payload
+   alongside normalized metrics, so a normalization bug stays diagnosable.
+2. **Unavailable is not zero.** A metric the platform withheld is recorded as unavailable;
+   treating it as 0 would corrupt every average, baseline and rate built on it.
+3. **No LLM in the measurement path.** Collection and scoring are deterministic arithmetic.
+   The AnalyticsAgent runs only when interpretation is requested.
+4. **Measurement does not change strategy.** The agent writes insights, never
+   `strategy_versions` — Phase 5 is "measured", not "learned".
+
+See [`docs/analytics.md`](analytics.md).
+
 ## Why a modular monolith
 
 The API, the three workers, and the agent-core/database/policies/llm/social-platforms

@@ -11,7 +11,11 @@
   },
   "dependencies": {
     "@agent/shared": "*",
-    "bullmq": "^5.34.2"
+    "bullmq": "^5.34.2",
+    "@agent/agent-core": "*",
+    "@agent/database": "*",
+    "@agent/llm": "*",
+    "@agent/media": "*"
   },
   "devDependencies": {
     "typescript": "^5.7.2",

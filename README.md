@@ -28,7 +28,8 @@ See [`docs/architecture.md`](docs/architecture.md) for the full system design,
 [`docs/agents.md`](docs/agents.md) for how the agents reason and what they persist, and
 [`docs/local-development.md`](docs/local-development.md) to get running.
 [`docs/instagram-setup.md`](docs/instagram-setup.md) covers connecting a real Instagram
-account, and [`docs/storage.md`](docs/storage.md) how generated media reaches Cloudflare R2.
+account, [`docs/storage.md`](docs/storage.md) how generated media reaches Cloudflare R2, and
+[`docs/analytics.md`](docs/analytics.md) how published content is measured.
 
 ## Stack
 
@@ -122,7 +123,7 @@ applying migrations, and the full verification walkthrough.
 
 ## Status
 
-**Phases 1–4 are complete.**
+**Phases 1–5 are complete.**
 
 - **Phase 1** — foundation: monorepo, schema, queues, API, policy layer, dashboard shell.
 - **Phase 2** — ResearchAgent, StrategyAgent and ContentPlannerAgent reason over real
@@ -138,14 +139,20 @@ applying migrations, and the full verification walkthrough.
   for publishing, scheduling, cancelling and tracking jobs. Autonomy ships **off**
   (`AUTO_PUBLISH_ENABLED=false`): only human-initiated publishes are allowed until you
   turn it on. See [`docs/instagram-setup.md`](docs/instagram-setup.md).
+- **Phase 5** — analytics and growth intelligence: Instagram media/account insights behind
+  a `PlatformAnalyticsProvider` abstraction, append-only raw snapshots plus normalized
+  metrics, deterministic derived rates and a median-based baseline, a bounded collection
+  ladder driven by the `analytics` queue and the outbox, and an `AnalyticsAgent` that
+  explains the numbers. It **measures** — it does not change strategy; that is Phase 7.
+  See [`docs/analytics.md`](docs/analytics.md).
 - **Media storage** — generated assets live in **Cloudflare R2** behind the existing
   `ObjectStorage` abstraction, with SVG→JPEG conversion so every stored image is genuinely
   publishable. Only `CloudflareR2Storage` knows R2 exists; the Instagram adapter just
   receives a public URL. See [`docs/storage.md`](docs/storage.md).
 
-Still typed skeletons: `AnalyticsAgent`, `ExperimentAgent`, `CommunityAgent`.
-Still stubs by design: the `FacebookAdapter`, Instagram *reads* (analytics, comments —
-Phases 5–6), real research/trend sources, video generation.
+Still typed skeletons: `ExperimentAgent`, `CommunityAgent`.
+Still stubs by design: the `FacebookAdapter`, Instagram comments/DMs (Phase 6), real
+research/trend sources, video generation.
 
 ### Known limitations
 
@@ -164,6 +171,10 @@ Phases 5–6), real research/trend sources, video generation.
   to local disk, whose URLs Meta cannot reach.
 - R2's public development URL (`pub-*.r2.dev`) is rate-limited and not intended for
   production traffic — attach a custom domain to the bucket before real load.
+- Instagram **insights require the `instagram_manage_insights` permission**. It is now in
+  `INSTAGRAM_SCOPES`, but any connection authorized before Phase 5 must be reconnected —
+  the older token does not carry it, and every `/insights` call returns
+  `(#10) Application does not have permission` until it is re-granted.
 - Long-lived Meta tokens expire in ~60 days and are not auto-refreshed yet; the dashboard
   surfaces the expiry and the connection must be re-authorized.
 - The Meta app runs in Development mode, so it can only publish to accounts with a role on

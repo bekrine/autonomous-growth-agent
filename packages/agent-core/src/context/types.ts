@@ -68,6 +68,28 @@ export interface ResearchSignalSummary {
   createdAt: string;
 }
 
+/** Shape of the measured data handed to AnalyticsAgent. Mirrors AnalyticsPromptInput. */
+export interface AnalyticsAgentInput {
+  niche: string | null;
+  targetAudience: string | null;
+  postCount: number;
+  baselineSampleSize: number;
+  baseline: Record<string, number>;
+  posts: {
+    format: string | null;
+    contentPillar: string | null;
+    title: string | null;
+    publishedAt: string | null;
+    postingHourUtc: number | null;
+    postingDayUtc: string | null;
+    generationVersion: number | null;
+    metrics: Record<string, number | undefined>;
+    performanceScore?: number;
+  }[];
+  followerChange?: number;
+  unavailableMetrics: string[];
+}
+
 export interface AgentPolicyContext {
   autonomyEnabled: boolean;
   contentApprovalRequired: boolean;
@@ -80,6 +102,13 @@ export interface AgentPolicyContext {
  */
 export interface AgentContextData {
   account: AccountContext;
+  /**
+   * Pre-computed analytics for AnalyticsAgent (Phase 5). Deterministic
+   * numbers produced by AnalyticsService from stored snapshots — the agent
+   * interprets them and never fetches anything itself. Absent when no
+   * analysis was requested.
+   */
+  analyticsInput?: AnalyticsAgentInput;
   goal: AgentGoalContext | null;
   currentStrategy: StrategyContext | null;
   recentContent: RecentContentSummary[];

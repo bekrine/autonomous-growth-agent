@@ -98,6 +98,24 @@ const envSchema = z.object({
     .default("false")
     .transform((v) => v === "true"),
 
+  /**
+   * Analytics (Phase 5). Collection windows are minutes after publication;
+   * the ladder is finite, which is what bounds API usage. Baseline count and
+   * score weights are configuration, not business rules baked into code.
+   */
+  ANALYTICS_COLLECTION_WINDOWS: z.string().optional().default("60,360,1440,4320"),
+  ANALYTICS_BASELINE_POST_COUNT: z.coerce.number().int().min(1).max(200).optional().default(10),
+  ANALYTICS_MAX_COLLECTION_ATTEMPTS: z.coerce.number().int().min(1).max(10).optional().default(3),
+  /** How often the worker sweeps for posts whose next window is due. */
+  ANALYTICS_SWEEP_INTERVAL_MINUTES: z.coerce.number().int().min(1).optional().default(15),
+  /** Serial by default: analytics must never be able to storm the Meta API. */
+  ANALYTICS_CONCURRENCY: z.coerce.number().int().min(1).max(10).optional().default(1),
+  ANALYTICS_ENABLED: z
+    .string()
+    .optional()
+    .default("true")
+    .transform((v) => v !== "false"),
+
   MAX_CONTENT_GENERATION_ATTEMPTS: z.coerce.number().int().min(1).max(10).optional().default(3),
   MAX_DAILY_MEDIA_GENERATIONS: z.coerce.number().int().min(0).optional().default(50),
 

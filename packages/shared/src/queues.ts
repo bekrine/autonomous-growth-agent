@@ -52,3 +52,27 @@ export const PUBLISH_CONTENT_JOB_NAME = "publish-content";
 export interface PublishContentJobData {
   publishingJobId: string;
 }
+
+/**
+ * Analytics jobs (Phase 5). `content.published` is emitted by PublishingService
+ * through the outbox and schedules collection; `collect-analytics` performs one
+ * bounded collection pass.
+ */
+export const CONTENT_PUBLISHED_EVENT = "content.published";
+export const COLLECT_ANALYTICS_JOB_NAME = "collect-analytics";
+
+export interface ContentPublishedJobData {
+  contentPostId: string;
+  socialAccountId: string;
+  contentGenerationId?: string | null;
+  externalPostId: string;
+  platform: string;
+  publishedAt: string;
+}
+
+export interface CollectAnalyticsJobData {
+  /** Omitted for a sweep of everything currently due. */
+  contentPostId?: string;
+  socialAccountId?: string;
+  collectionWindow?: string;
+}

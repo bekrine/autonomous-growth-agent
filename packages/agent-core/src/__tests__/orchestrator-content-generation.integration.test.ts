@@ -120,7 +120,7 @@ describe.skipIf(!databaseAvailable)("AgentOrchestrator.generateContent (integrat
     expect(decisionTypes).toContain("content_approved");
   });
 
-  it("regenerates on rejection up to the configured max, then marks REVIEW_FAILED without an infinite loop", { timeout: 20_000 }, async () => {
+  it("regenerates on rejection up to the configured max, then marks REVIEW_FAILED without an infinite loop", async () => {
     const db = createDatabase(DATABASE_URL);
     const logger = createLogger({ name: "test", level: "silent" });
     const system = buildAgentSystem({ db, llm: new AlwaysRejectingReviewLLM(), logger, maxRegenerationAttempts: 3, objectStorage: new InMemoryObjectStorage() });

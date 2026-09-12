@@ -132,6 +132,43 @@ Recording the container makes a crash mid-flow diagnosable.
   reason. `summary` continues to double as the "change summary" field — no separate column
   was added, since the two would always hold the same content (see rule 9 in the root README).
 
+### Phase 5 additions (analytics)
+
+- **`analytics_snapshots`** gained `content_generation_id, social_connection_id, platform,
+  external_post_id, collection_window, outcome, error_reason`. Append-only: rows are never
+  updated, so "current followers" is the newest snapshot rather than a mutated field and
+  follower history survives. `metrics` holds the *sanitized* raw provider payload; the
+  normalized numbers live in `analytics_metrics`, so a normalization bug can be diagnosed
+  after the fact instead of being baked in.
+- **`analytics_metrics`** — one row per measurement: `metric_name` (canonical),
+  `platform_metric_name` (what the API called it), `metric_value`, `metric_unit`,
+  `available`, `unavailable_reason`, `source` (`platform` | `derived`), `computation`.
+  Metrics as rows rather than columns means a new platform metric needs **no migration** —
+  which matters because Meta's set changes (impressions → views, April 2025).
+  `available = false` is categorically different from `value = 0`; see
+  [`analytics.md`](analytics.md).
+- **`content_analytics_state`** — per-post collection state: `status`, `published_at`,
+  `last_snapshot_at`, `next_snapshot_at`, `completed_windows`, `attempts`, `last_error`.
+  This is the cost control: the worker selects only posts whose `next_snapshot_at` has
+  arrived instead of polling everything published.
+- **`analytics_insights`** — structured AnalyticsAgent observations with evidence,
+  confidence, sample size and time range. Deliberately separate from `strategy_versions`:
+  Phase 5 measures and explains, it does not change strategy.
+- **`content_posts`** gained nullable `experiment_id` / `experiment_variant_id`. No
+  experiment logic reads them yet (Phase 6), but carrying them now means posts published
+  during Phase 5 can still be attributed later, instead of leaving a blind spot.
+
+Analytics idempotency is enforced by:
+
+```sql
+UNIQUE NULLS NOT DISTINCT (social_account_id, content_post_id, metric_type, collection_window)
+```
+
+`NULLS NOT DISTINCT` (migration `0007`) is essential rather than decorative: account-level
+snapshots have a NULL `content_post_id`, and Postgres's default treats every NULL as
+distinct — so without it the same account/day could insert repeatedly and silently corrupt
+follower history.
+
 ## Repositories
 
 `packages/database/src/repositories/` wraps every table group behind a small class

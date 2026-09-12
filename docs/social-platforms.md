@@ -28,9 +28,20 @@ create media container → poll `status_code` until `FINISHED` → `media_publis
 hard-coded. Carousels create one child container per item, wait for each, then publish a
 `CAROUSEL` parent.
 
-Its remaining `SocialPlatform` methods (`publishPost`, `getPost`, `getAnalytics`,
-`getComments`, `replyToComment`) still throw as explicitly-marked stubs — they land in
-Phase 5 (analytics) and Phase 6 (engagement). `FacebookAdapter` remains a mock throughout.
+Analytics arrived in Phase 5 as a **separate interface**, `PlatformAnalyticsProvider`
+(`analytics-types.ts`), implemented by `InstagramAnalyticsProvider`. Keeping it apart from
+`SocialPlatform` means a platform can support publishing without pretending to support
+insights.
+
+Because Meta's metric set moves (`impressions` → `views`, April 2025) and differs by media
+product type, the provider **discovers** availability: each candidate metric is requested
+individually and anything rejected is recorded as `available: false` with a reason — never
+as 0. Insights additionally require the `instagram_manage_insights` scope. See
+[`analytics.md`](analytics.md).
+
+`InstagramAdapter`'s remaining `SocialPlatform` methods (`publishPost`, `getPost`,
+`getComments`, `replyToComment`) still throw as explicitly-marked stubs — engagement lands
+in Phase 6. `FacebookAdapter` remains a mock throughout.
 
 Real Graph calls only happen when `INSTAGRAM_PUBLISHING_ENABLED=true`; a `MockPublisher`
 stands in otherwise, which is what the whole test suite runs against. See

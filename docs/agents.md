@@ -185,12 +185,14 @@ researchProvider })` without changing `ResearchAgent` or anything downstream of 
 
 ## Skeletons
 
-`AnalyticsAgent`, `ExperimentAgent`, and `CommunityAgent` (in
+`ExperimentAgent` and `CommunityAgent` (in
 `packages/agent-core/src/agents/skeleton-agents.ts`) implement
 `Agent` and record a single `not_implemented` decision. They exist so the orchestrator's
 agent list, the `AgentName` union, and any code that switches on agent name already has a
 stable, typed shape to extend — implementing one is adding logic to its `run()` method,
 not changing any interface. They are not part of the run list yet.
+
+`AnalyticsAgent` graduated out of this file in Phase 5 — see below.
 
 ## Orchestration
 
@@ -236,3 +238,34 @@ BullMQ job instead of an HTTP request.
 3. Add an instance to the agent list passed into `AgentOrchestrator`, and (if it produces
    domain rows) a branch in the orchestrator's per-stage persistence dispatch, in
    `packages/agent-core/src/factory.ts` / `orchestrator.ts`.
+
+## AnalyticsAgent (Phase 5)
+
+Turns measured analytics into structured, evidence-backed observations. It is the only
+agent that runs outside the planning pipeline, via its own entry point
+`AgentOrchestrator.analyzePerformance(accountId)`.
+
+**Inputs** (all pre-computed, deterministic): recent per-post metrics, the account
+baseline, follower change, content dimensions (format, pillar, posting hour/day in UTC,
+generation version) and the list of metrics the platform did *not* provide.
+
+**Output**: `summary`, `observations[]` (type, dimension, finding, evidence, confidence,
+sample size), `opportunities[]`, `risks[]`, `dataQuality`.
+
+Three boundaries define it:
+
+1. **It never calls Meta.** All numbers arrive via `AnalyticsService` from stored
+   snapshots. The agent has no adapter and no token.
+2. **It never changes strategy.** Its schema has no field capable of expressing one, it
+   emits no actions, and it writes only `analytics_insights` + `agent_decisions`. Tests
+   assert both the schema shape and that `strategy_versions` is unchanged across a run.
+3. **It runs on request, not per metric.** Collection is arithmetic and runs on a
+   schedule; interpretation costs an LLM call and happens when asked.
+
+**Sample-size discipline**: below 5 posts, confidence is clamped to ≤ 0.45 *after* the
+model responds, findings are prefixed "Early signal:", and a claimed sample size can never
+exceed the posts that exist. A model instructed not to overclaim will still sometimes
+overclaim, so this is enforced in code rather than trusted to the prompt.
+
+Each observation is recorded as a `performance_observation` decision with its evidence and
+sample size — a queryable row, not a prose blob. See [`analytics.md`](analytics.md).

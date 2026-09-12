@@ -261,6 +261,24 @@ export class PublishingService {
       });
       await contentRepository.updatePostStatus(post.id, "published");
 
+      // Emits `content.published` through the same outbox the publish itself
+      // used, so analytics collection is a reaction to a durable fact rather
+      // than something the browser or a timer has to trigger. A crash right
+      // here leaves the event pending, not lost.
+      await new OutboxRepositoryClass(this.deps.db).enqueue({
+        aggregateType: "analytics",
+        aggregateId: post.id,
+        eventType: "content.published",
+        payload: {
+          contentPostId: post.id,
+          socialAccountId: post.socialAccountId,
+          contentGenerationId: job.contentGenerationId,
+          externalPostId: outcome.externalPostId,
+          platform: job.platform ?? "instagram",
+          publishedAt: publishedAt.toISOString(),
+        },
+      });
+
       logger.info(
         {
           publishingJobId: job.id,
