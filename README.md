@@ -171,9 +171,9 @@ research/trend sources, video generation.
   to local disk, whose URLs Meta cannot reach.
 - R2's public development URL (`pub-*.r2.dev`) is rate-limited and not intended for
   production traffic — attach a custom domain to the bucket before real load.
-- Instagram **insights require the `instagram_manage_insights` permission**. It is now in
-  `INSTAGRAM_SCOPES`, but any connection authorized before Phase 5 must be reconnected —
-  the older token does not carry it, and every `/insights` call returns
+- Instagram **insights require the `instagram_manage_insights` permission**. It is in
+  `INSTAGRAM_SCOPES`, but a connection authorized before Phase 5 must be reconnected —
+  an older token does not carry it, and every `/insights` call returns
   `(#10) Application does not have permission` until it is re-granted.
 - Long-lived Meta tokens expire in ~60 days and are not auto-refreshed yet; the dashboard
   surfaces the expiry and the connection must be re-authorized.

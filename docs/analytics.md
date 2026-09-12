@@ -43,6 +43,14 @@ other metric.
 | REELS | reach, likes, comments, shares, saved, views, total_interactions |
 | STORY | reach, views, replies, total_interactions |
 
+Verified against the live Graph API (v21.0, FEED/IMAGE): all nine FEED candidates are
+accepted. `impressions` is rejected outright —
+
+> `(#100) Starting from version v22.0 and above, the impressions metric is no longer supported`
+
+— which is why `views` is the canonical name and `impressions` maps onto it rather than
+being requested. `engagement` is likewise not a valid media metric.
+
 Account level: `followers_count`, `follows_count`, `media_count` (basic fields), plus
 `reach`, `views`, `profile_views`, `accounts_engaged` (insights).
 
@@ -56,6 +64,15 @@ authorized before Phase 5 must be reconnected** — the old token simply does no
 The failure is surfaced explicitly ("Permission denied — the connection is missing
 instagram_manage_insights. Reconnect the account.") rather than collapsed into "no data",
 because the two need completely different responses from an operator.
+
+### Zero is not unavailable, either
+
+The inverse case matters just as much, and the live smoke test exercised it: a brand-new
+account's first post returned `reach: 0, likes: 0, …` — genuinely zero, reported by the
+platform. Those are stored as `available: true, value: 0`.
+
+Every derived rate over them is then **unavailable** ("Cannot compute: reach is 0"), not
+`0%`. Zero reach is a fact; an engagement rate over zero reach is undefined.
 
 ## Unavailable is not zero
 
