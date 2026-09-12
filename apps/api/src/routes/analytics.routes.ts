@@ -31,6 +31,12 @@ const topPostsQuerySchema = z.object({
   limit: z.coerce.number().int().min(1).max(100).optional(),
 });
 
+const dimensionQuerySchema = z.object({
+  dimension: z
+    .enum(["format", "content_pillar", "objective", "posting_hour", "posting_day", "generation_version"])
+    .optional(),
+});
+
 export function analyticsRoutes(deps: AppDependencies): Router {
   const router = Router();
   const service = new AnalyticsQueryService(new AnalyticsRepository(deps.db), deps.agentSystem.analyticsService);
@@ -62,6 +68,21 @@ export function analyticsRoutes(deps: AppDependencies): Router {
       const { accountId } = req.params as unknown as z.infer<typeof accountIdParamsSchema>;
       const { sortBy, limit } = req.query as unknown as z.infer<typeof topPostsQuerySchema>;
       res.json(await service.getTopPosts(accountId, { sortBy, limit }));
+    }),
+  );
+
+  /**
+   * Deterministic group-by, so "which format performs best?" is answered by
+   * arithmetic over stored metrics rather than by LLM narrative.
+   */
+  router.get(
+    "/analytics/accounts/:accountId/by-dimension",
+    validate("params", accountIdParamsSchema),
+    validate("query", dimensionQuerySchema),
+    asyncHandler(async (req, res) => {
+      const { accountId } = req.params as unknown as z.infer<typeof accountIdParamsSchema>;
+      const { dimension } = req.query as unknown as z.infer<typeof dimensionQuerySchema>;
+      res.json(await service.getDimensionBreakdown(accountId, dimension ?? "format"));
     }),
   );
 

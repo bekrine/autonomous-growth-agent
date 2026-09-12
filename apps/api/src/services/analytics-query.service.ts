@@ -93,6 +93,13 @@ export class AnalyticsQueryService {
         postingDayUtc: publishedAt ? UTC_DAYS[publishedAt.getUTCDay()] : null,
         generationVersion: post?.currentGenerationVersion ?? null,
         experimentId: post?.experimentId ?? null,
+        // The dimensions that explain *why* a post performed as it did. Without
+        // these the table is a list of numbers with nothing to attribute them to.
+        title: post?.title ?? null,
+        format: post?.format ?? null,
+        contentPillar: post?.contentPillar ?? null,
+        hook: post?.hook ?? null,
+        objective: post?.objective ?? null,
         metrics: entry.metrics.map(toPublicMetric),
         performanceScore: score.available ? score.score : undefined,
         performanceScoreCoverage: score.coverage,
@@ -102,6 +109,57 @@ export class AnalyticsQueryService {
 
     const sorted = [...rows].sort((a, b) => sortValue(b, sortBy) - sortValue(a, sortBy));
     return sorted.slice(0, limit);
+  }
+
+  /**
+   * Deterministic group-by for a content dimension: median metric per group,
+   * with the sample size that produced it.
+   *
+   * Median for the same reason the baseline uses it — one outlier post would
+   * otherwise make its whole format or pillar look better than it is. Groups
+   * report `sampleSize` so a "winner" drawn from one post is visibly not a
+   * winner; nothing here declares one.
+   */
+  async getDimensionBreakdown(accountId: string, dimension: DimensionName) {
+    const [performance, posts] = await Promise.all([
+      this.core.getPostPerformance(accountId, 200),
+      this.repo.listPublishedPostsWithDimensions(accountId, 500),
+    ]);
+    const postsById = new Map(posts.map((post) => [post.id, post]));
+
+    const groups = new Map<string, { values: Record<string, number[]>; postIds: string[] }>();
+
+    for (const entry of performance) {
+      if (!entry.snapshot.contentPostId) continue;
+      const post = postsById.get(entry.snapshot.contentPostId);
+      const key = dimensionValue(dimension, post);
+      if (key === null) continue;
+
+      const group = groups.get(key) ?? { values: {}, postIds: [] };
+      group.postIds.push(entry.snapshot.contentPostId);
+      for (const metric of entry.metrics) {
+        if (!metric.available || metric.value === undefined) continue;
+        (group.values[metric.name] ??= []).push(metric.value);
+      }
+      groups.set(key, group);
+    }
+
+    return [...groups.entries()]
+      .map(([value, group]) => ({
+        dimension,
+        value,
+        sampleSize: group.postIds.length,
+        contentPostIds: group.postIds,
+        // Only metrics some post in this group actually reported. A metric
+        // absent from every post is omitted rather than reported as 0.
+        metrics: Object.fromEntries(
+          Object.entries(group.values).map(([name, values]) => [
+            name,
+            { median: medianOf(values), observations: values.length },
+          ]),
+        ),
+      }))
+      .sort((a, b) => b.sampleSize - a.sampleSize);
   }
 
   async getPostAnalytics(contentPostId: string) {
@@ -156,6 +214,38 @@ export class AnalyticsQueryService {
 }
 
 const UTC_DAYS = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
+
+export type DimensionName = "format" | "content_pillar" | "objective" | "posting_hour" | "posting_day" | "generation_version";
+
+function dimensionValue(
+  dimension: DimensionName,
+  post:
+    | { format: string | null; contentPillar: string | null; objective: string | null; publishedAt: Date | null; currentGenerationVersion: number | null }
+    | undefined,
+): string | null {
+  if (!post) return null;
+  switch (dimension) {
+    case "format":
+      return post.format;
+    case "content_pillar":
+      return post.contentPillar;
+    case "objective":
+      return post.objective;
+    case "posting_hour":
+      return post.publishedAt ? String(post.publishedAt.getUTCHours()).padStart(2, "0") : null;
+    case "posting_day":
+      return post.publishedAt ? UTC_DAYS[post.publishedAt.getUTCDay()]! : null;
+    case "generation_version":
+      return post.currentGenerationVersion === null ? null : String(post.currentGenerationVersion);
+  }
+}
+
+function medianOf(values: number[]): number | undefined {
+  if (values.length === 0) return undefined;
+  const sorted = [...values].sort((a, b) => a - b);
+  const mid = Math.floor(sorted.length / 2);
+  return sorted.length % 2 === 0 ? (sorted[mid - 1]! + sorted[mid]!) / 2 : sorted[mid]!;
+}
 
 function sortValue(row: { metrics: { name: string; value?: number }[]; performanceScore?: number }, sortBy: string) {
   if (sortBy === "performance_score") return row.performanceScore ?? -1;
