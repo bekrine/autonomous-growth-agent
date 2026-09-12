@@ -10,7 +10,23 @@ const accountIdParamsSchema = z.object({ accountId: z.string().uuid() });
 const contentIdParamsSchema = z.object({ contentId: z.string().uuid() });
 const topPostsQuerySchema = z.object({
   sortBy: z
-    .enum(["reach", "views", "likes", "comments", "shares", "saves", "follows", "engagement_rate", "performance_score"])
+    // Kept in step with the metrics actually collected — a metric that can be
+    // measured but not sorted by is a dead end for the dashboard.
+    .enum([
+      "reach",
+      "views",
+      "likes",
+      "comments",
+      "shares",
+      "saves",
+      "follows",
+      "total_interactions",
+      "profile_views",
+      "engagement_rate",
+      "share_rate",
+      "save_rate",
+      "performance_score",
+    ])
     .optional(),
   limit: z.coerce.number().int().min(1).max(100).optional(),
 });

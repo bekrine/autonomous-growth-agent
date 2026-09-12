@@ -259,7 +259,9 @@ export class PublishingService {
         errorCode: null,
         lastError: null,
       });
-      await contentRepository.updatePostStatus(post.id, "published");
+      // Stamped with the platform's publish time: analytics groups by posting
+      // hour/day, so this must be when Instagram accepted it.
+      await contentRepository.updatePostStatus(post.id, "published", { publishedAt });
 
       // Emits `content.published` through the same outbox the publish itself
       // used, so analytics collection is a reaction to a durable fact rather

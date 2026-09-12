@@ -93,10 +93,19 @@ export class ContentRepository {
     return row ?? null;
   }
 
-  async updatePostStatus(id: string, status: ContentPostStatus) {
+  /**
+   * `publishedAt` is passed explicitly rather than defaulted to now(), because
+   * analytics derives posting hour/day from it — it must be the moment the
+   * platform accepted the post, not the moment this row happened to be written.
+   */
+  async updatePostStatus(id: string, status: ContentPostStatus, options: { publishedAt?: Date } = {}) {
     const [row] = await this.db
       .update(contentPosts)
-      .set({ status, updatedAt: new Date() })
+      .set({
+        status,
+        ...(options.publishedAt ? { publishedAt: options.publishedAt } : {}),
+        updatedAt: new Date(),
+      })
       .where(eq(contentPosts.id, id))
       .returning();
     return row;
