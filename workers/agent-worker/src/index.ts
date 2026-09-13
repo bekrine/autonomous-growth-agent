@@ -1,7 +1,7 @@
 import { Worker } from "bullmq";
 import { createDatabase, closeDatabase, OutboxRepository } from "@agent/database";
 import { createLLMProvider } from "@agent/llm";
-import { createImageGenerator, createObjectStorage } from "@agent/media";
+import { createImageGenerator, createObjectStorage, createVideoGenerator } from "@agent/media";
 import { buildAgentSystem } from "@agent/agent-core";
 import { createLogger, createRedisConnection, loadEnv } from "@agent/shared";
 import { createPlaceholderProcessor } from "./processors.js";
@@ -60,6 +60,13 @@ async function main() {
       maxExperimentContentPerDay: env.MAX_EXPERIMENT_CONTENT_PER_DAY,
       maxSampleImbalanceRatio: env.EXPERIMENT_MAX_SAMPLE_IMBALANCE_RATIO,
     },
+    videoGenerator: createVideoGenerator({
+      agnesApiKey: env.AGNES_API_KEY,
+      agnesVideoModel: env.AGNES_VIDEO_MODEL,
+      agnesBaseUrl: env.AGNES_BASE_URL,
+      videoGenerationEnabled: env.VIDEO_GENERATION_ENABLED,
+    }),
+    videoGenerationEnabled: env.VIDEO_GENERATION_ENABLED,
     maxRegenerationAttempts: env.MAX_CONTENT_GENERATION_ATTEMPTS,
     maxDailyMediaGenerations: env.MAX_DAILY_MEDIA_GENERATIONS,
   });

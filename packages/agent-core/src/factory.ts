@@ -33,12 +33,13 @@ import {
   SocialConnectionPolicy,
 } from "@agent/policies";
 import type { Logger, TokenEncryptionService } from "@agent/shared";
-import type { ImageGenerator, ObjectStorage } from "@agent/media";
-import { createImageGenerator, createObjectStorage, MediaStorageService } from "@agent/media";
+import type { ImageGenerator, ObjectStorage, VideoGenerator } from "@agent/media";
+import { createImageGenerator, createObjectStorage, createVideoGenerator, MediaStorageService } from "@agent/media";
 import { ToolRouter } from "./tool-router.js";
 import {
   CreateContentBriefTool,
   GenerateImageTool,
+  GenerateVideoTool,
   GetAccountTool,
   GetCommentsTool,
   GetPostAnalyticsTool,
@@ -76,6 +77,9 @@ export interface BuildAgentSystemOptions {
   researchProvider?: ResearchProvider;
   /** Swappable — defaults to MockImageGenerator until an image-gen key is configured. */
   imageGenerator?: ImageGenerator;
+  videoGenerator?: VideoGenerator;
+  /** Reels render a real video only when true; otherwise they get a cover image. */
+  videoGenerationEnabled?: boolean;
   /** Swappable — defaults to local-disk storage until a real STORAGE_* provider is configured. */
   objectStorage?: ObjectStorage;
   mediaStorage?: MediaStorageService;
@@ -131,6 +135,7 @@ export function buildAgentSystem(options: BuildAgentSystemOptions) {
   const killSwitch = options.killSwitch ?? new KillSwitchStore();
 
   const imageGenerator = options.imageGenerator ?? createImageGenerator({});
+  const videoGenerator = options.videoGenerator ?? createVideoGenerator({});
   const objectStorage =
     options.objectStorage ?? createObjectStorage({ localDir: "./storage", publicBaseUrl: "http://localhost:4000/media" });
   // One service wraps whichever ObjectStorage was selected; nothing downstream
@@ -230,6 +235,7 @@ export function buildAgentSystem(options: BuildAgentSystemOptions) {
       new GetCommentsTool(platforms),
       new UpdateStrategyTool(strategyRepository),
       new GenerateImageTool(imageGenerator, mediaStorage),
+      new GenerateVideoTool(videoGenerator, mediaStorage),
     ],
     policyEngine,
   );
@@ -261,6 +267,8 @@ export function buildAgentSystem(options: BuildAgentSystemOptions) {
       logger: options.logger,
       maxRegenerationAttempts: options.maxRegenerationAttempts ?? 3,
       imageGeneratorName: imageGenerator.name,
+      videoGeneratorName: videoGenerator.name,
+      videoGenerationEnabled: options.videoGenerationEnabled ?? false,
     },
     [new ResearchAgent(researchProvider), new StrategyAgent(), new ContentPlannerAgent()],
     { contentCreator: new ContentCreatorAgent(), reviewer: new ReviewerAgent() },
@@ -302,6 +310,7 @@ export function buildAgentSystem(options: BuildAgentSystemOptions) {
     killSwitch,
     contextLoader,
     imageGenerator,
+    videoGenerator,
     objectStorage,
     mediaStorage,
     repositories: {

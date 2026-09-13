@@ -125,11 +125,18 @@ export class ContentGenerationRepository {
       errorMessage?: string;
       storageProvider?: string;
       sizeBytes?: number;
+      /** Video only. numeric column, so it round-trips as a string. */
+      durationSeconds?: number;
     },
   ) {
+    const { durationSeconds, ...rest } = update;
     const [row] = await this.db
       .update(contentAssets)
-      .set({ ...update, updatedAt: new Date() })
+      .set({
+        ...rest,
+        ...(durationSeconds === undefined ? {} : { durationSeconds: String(durationSeconds) }),
+        updatedAt: new Date(),
+      })
       .where(eq(contentAssets.id, id))
       .returning();
     return row;

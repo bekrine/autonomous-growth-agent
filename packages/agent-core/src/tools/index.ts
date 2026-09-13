@@ -7,3 +7,4 @@ export * from "./get-post-analytics.js";
 export * from "./get-comments.js";
 export * from "./update-strategy.js";
 export * from "./generate-image.js";
+export * from "./generate-video.js";

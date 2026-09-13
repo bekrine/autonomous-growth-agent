@@ -160,3 +160,96 @@ describe.skipIf(!databaseAvailable)("AgentOrchestrator.generateContent (integrat
     expect(generations).toHaveLength(1);
   });
 });
+
+describe.skipIf(!databaseAvailable)("reel video generation", () => {
+  /** Returns real MP4-ish bytes so the storage path is genuinely exercised. */
+  function fakeVideoGenerator(overrides: Record<string, unknown> = {}) {
+    return {
+      name: "fake-video",
+      generate: async (input: { durationSeconds?: number }) => ({
+        status: "completed" as const,
+        provider: "fake-video",
+        assetId: "provider-video-1",
+        videoData: Buffer.from("ftypisom-fake-mp4"),
+        mimeType: "video/mp4",
+        durationSeconds: input.durationSeconds,
+        ...overrides,
+      }),
+    } as never;
+  }
+
+  it("produces a video asset for a reel when video generation is enabled", async () => {
+    const db = createDatabase(DATABASE_URL);
+    const logger = createLogger({ name: "test", level: "silent" });
+    const system = buildAgentSystem({
+      db,
+      llm: new MockLLMProvider(),
+      logger,
+      objectStorage: new InMemoryObjectStorage(),
+      videoGenerator: fakeVideoGenerator(),
+      videoGenerationEnabled: true,
+    });
+    const { account, idea } = await seedAccountWithIdea(db, system, "reel-video");
+
+    const outcome = await system.orchestrator.generateContent(account.id, idea.id);
+    const generation = await system.repositories.contentGenerationRepository.findLatestByPostId(outcome.contentPostId);
+    const assets = await system.repositories.contentGenerationRepository.listAssetsByGenerationId(generation!.id);
+
+    const video = assets.find((a) => a.assetType === "video");
+    expect(video).toBeDefined();
+    expect(video!.status).toBe("completed");
+    expect(video!.mimeType).toBe("video/mp4");
+    expect(video!.storageKey).toContain("/videos/");
+    expect(video!.url).toContain(".mp4");
+
+    // A reel is a video post — a cover image cannot be published as one.
+    expect(assets.some((a) => a.assetType === "image")).toBe(false);
+  });
+
+  it("falls back to a cover image when video generation fails", async () => {
+    const db = createDatabase(DATABASE_URL);
+    const logger = createLogger({ name: "test", level: "silent" });
+    const system = buildAgentSystem({
+      db,
+      llm: new MockLLMProvider(),
+      logger,
+      objectStorage: new InMemoryObjectStorage(),
+      // No bytes returned — a provider outage, or a generator still mocked.
+      videoGenerator: fakeVideoGenerator({ videoData: undefined, status: "mocked" }),
+      videoGenerationEnabled: true,
+    });
+    const { account, idea } = await seedAccountWithIdea(db, system, "reel-fallback");
+
+    const outcome = await system.orchestrator.generateContent(account.id, idea.id);
+    const generation = await system.repositories.contentGenerationRepository.findLatestByPostId(outcome.contentPostId);
+    const assets = await system.repositories.contentGenerationRepository.listAssetsByGenerationId(generation!.id);
+
+    // The failed attempt is recorded rather than hidden...
+    expect(assets.find((a) => a.assetType === "video")?.status).toBe("failed");
+    // ...and the post still gets usable media instead of losing the attempt.
+    expect(assets.find((a) => a.assetType === "image")?.status).toBe("completed");
+    expect(outcome.status).toBe("ready_for_publishing");
+  });
+
+  it("still uses a cover image for reels when video generation is off", async () => {
+    const db = createDatabase(DATABASE_URL);
+    const logger = createLogger({ name: "test", level: "silent" });
+    const system = buildAgentSystem({
+      db,
+      llm: new MockLLMProvider(),
+      logger,
+      objectStorage: new InMemoryObjectStorage(),
+      videoGenerator: fakeVideoGenerator(),
+      // Default: rendering a clip takes minutes and the free tier is tight.
+      videoGenerationEnabled: false,
+    });
+    const { account, idea } = await seedAccountWithIdea(db, system, "reel-off");
+
+    const outcome = await system.orchestrator.generateContent(account.id, idea.id);
+    const generation = await system.repositories.contentGenerationRepository.findLatestByPostId(outcome.contentPostId);
+    const assets = await system.repositories.contentGenerationRepository.listAssetsByGenerationId(generation!.id);
+
+    expect(assets.some((a) => a.assetType === "video")).toBe(false);
+    expect(assets.find((a) => a.assetType === "image")?.status).toBe("completed");
+  });
+});

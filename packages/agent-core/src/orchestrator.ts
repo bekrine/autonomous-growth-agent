@@ -44,6 +44,13 @@ export interface OrchestratorDependencies {
   maxRegenerationAttempts: number;
   /** Recorded on the asset row up-front so a failed generation still says which provider was attempted. */
   imageGeneratorName: string;
+  videoGeneratorName?: string;
+  /**
+   * Reels generate a real video only when this is on. Off by default: a clip
+   * takes minutes to render and the free tier is heavily rate-limited, so
+   * reels fall back to a cover image.
+   */
+  videoGenerationEnabled?: boolean;
 }
 
 /** Data the analytics path needs; separate from OrchestratorDependencies so the rest stays untouched. */
@@ -268,7 +275,15 @@ export class AgentOrchestrator {
 
         const generation = await this.persistGenerationAttempt(run.id, post.id, attempt, creatorResult, generatedContent);
 
-        if (generatedContent.format !== "text") {
+        if (generatedContent.format === "reel" && this.deps.videoGenerationEnabled) {
+          // Reels are video posts; a cover image cannot be published as one.
+          // Falls back to a cover image if the video fails, so a provider
+          // outage degrades the post rather than losing the whole attempt.
+          const produced = await this.generateAndPersistReelVideo(accountId, post.id, generation.id, generatedContent);
+          if (!produced) {
+            await this.generateAndPersistCoverImage(accountId, post.id, generation.id, generatedContent);
+          }
+        } else if (generatedContent.format !== "text") {
           await this.generateAndPersistCoverImage(accountId, post.id, generation.id, generatedContent);
         }
 
@@ -731,6 +746,96 @@ export class AgentOrchestrator {
         llmProvider: this.deps.llm.name,
       });
     });
+  }
+
+  /**
+   * Calls the generateVideo tool (policy-gated) for reels and records the
+   * resulting asset. Returns false when no video was produced, so the caller
+   * can fall back to a cover image.
+   *
+   * Video generation takes 1-3 minutes. The synchronous generate endpoint will
+   * block for that long; the `content` queue exists for callers that cannot.
+   */
+  private async generateAndPersistReelVideo(
+    accountId: string,
+    contentPostId: string,
+    contentGenerationId: string,
+    generatedContent: GeneratedContent,
+  ): Promise<boolean> {
+    const prompt =
+      "visualDirection" in generatedContent && generatedContent.visualDirection
+        ? generatedContent.visualDirection
+        : generatedContent.hook;
+
+    const durationSeconds =
+      "estimatedDurationSeconds" in generatedContent && typeof generatedContent.estimatedDurationSeconds === "number"
+        ? generatedContent.estimatedDurationSeconds
+        : undefined;
+
+    const generationRepo = new ContentGenerationRepository(this.deps.db);
+    const assetRow = await generationRepo.createAsset({
+      contentGenerationId,
+      assetType: "video",
+      provider: this.deps.videoGeneratorName ?? "unknown",
+      status: "requested",
+    });
+
+    let result: ToolResult<{
+      storageKey: string;
+      url: string;
+      mimeType: string;
+      provider: string;
+      storageProvider: string;
+      sizeBytes: number;
+      durationSeconds?: number;
+      providerAssetId?: string;
+    }>;
+    try {
+      result = await this.deps.toolRouter.call("generateVideo", accountId, {
+        prompt,
+        durationSeconds,
+        accountId,
+        contentId: contentPostId,
+        assetId: assetRow.id,
+      });
+    } catch (error) {
+      result = { success: false, error: error instanceof Error ? error.message : String(error) };
+    }
+
+    if (!result.success || !result.data) {
+      await generationRepo.updateAssetStatus(assetRow.id, {
+        status: "failed",
+        errorMessage: result.error ?? "Unknown video generation error",
+      });
+      this.deps.logger.warn({ contentGenerationId, error: result.error }, "content_generation.video_failed");
+      return false;
+    }
+
+    await generationRepo.updateAssetStatus(assetRow.id, {
+      status: "completed",
+      provider: result.data.provider,
+      storageKey: result.data.storageKey,
+      url: result.data.url,
+      mimeType: result.data.mimeType,
+      providerAssetId: result.data.providerAssetId,
+      storageProvider: result.data.storageProvider,
+      sizeBytes: result.data.sizeBytes,
+      durationSeconds: result.data.durationSeconds,
+    });
+
+    this.deps.logger.info(
+      {
+        assetId: assetRow.id,
+        contentId: contentPostId,
+        objectKey: result.data.storageKey,
+        storageProvider: result.data.storageProvider,
+        size: result.data.sizeBytes,
+        durationSeconds: result.data.durationSeconds,
+      },
+      "content_generation.video_stored",
+    );
+
+    return true;
   }
 
   /** Calls the generateImage tool (policy-gated) for non-text formats and records the resulting asset. Failures don't fail the whole attempt — reviewer still evaluates the copy. */
