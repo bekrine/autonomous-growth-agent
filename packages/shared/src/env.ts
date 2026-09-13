@@ -29,6 +29,27 @@ const envSchema = z.object({
     .default("false")
     .transform((v) => v === "true"),
 
+  /**
+   * Agnes AI — OpenAI-compatible gateway with a genuinely free image tier
+   * (30 req/min) and a much tighter video tier (2 req/min). Preferred over
+   * Hugging Face for images, whose own provider no longer serves
+   * text-to-image and routes to a paid third party.
+   */
+  AGNES_API_KEY: z.string().optional().default(""),
+  AGNES_BASE_URL: z.string().optional().default("https://apihub.agnes-ai.com/v1"),
+  AGNES_IMAGE_MODEL: z.string().optional().default("agnes-image-2.1-flash"),
+  AGNES_VIDEO_MODEL: z.string().optional().default("agnes-video-v2.0"),
+  /**
+   * Video is opt-in separately from images: a clip takes minutes to render
+   * and the free tier allows only 2 requests/minute, so enabling it by
+   * accident would stall the content pipeline.
+   */
+  VIDEO_GENERATION_ENABLED: z
+    .string()
+    .optional()
+    .default("false")
+    .transform((v) => v === "true"),
+
   INSTAGRAM_CLIENT_ID: z.string().optional().default(""),
   INSTAGRAM_CLIENT_SECRET: z.string().optional().default(""),
 

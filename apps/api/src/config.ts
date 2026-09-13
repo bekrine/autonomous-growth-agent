@@ -47,6 +47,9 @@ export function createAppDependencies(): AppDependencies {
     huggingFaceApiKey: env.HF_TOKEN,
     huggingFaceModel: env.HF_IMAGE_MODEL,
     huggingFaceProvider: env.HF_IMAGE_PROVIDER,
+    agnesApiKey: env.AGNES_API_KEY,
+    agnesImageModel: env.AGNES_IMAGE_MODEL,
+    agnesBaseUrl: env.AGNES_BASE_URL,
     imageGenerationEnabled: env.IMAGE_GENERATION_ENABLED,
   });
   const objectStorage = createObjectStorage({
