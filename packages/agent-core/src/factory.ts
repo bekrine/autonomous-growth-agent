@@ -61,6 +61,8 @@ import { MockResearchProvider, type ResearchProvider } from "./research/research
 import { AgentRunService } from "./agent-run-service.js";
 import { PublishingService } from "./publishing/publishing-service.js";
 import { AnalyticsService } from "./analytics/analytics-service.js";
+import { ExperimentService } from "./experiments/experiment-service.js";
+import type { ExperimentLimits } from "./experiments/experiment-config.js";
 import type { CollectionWindow } from "./analytics/collection-windows.js";
 import { StoredAssetMediaResolver } from "./publishing/public-media-resolver.js";
 
@@ -97,6 +99,7 @@ export interface BuildAgentSystemOptions {
   analyticsCollectionWindows?: CollectionWindow[];
   analyticsBaselinePostCount?: number;
   analyticsMaxCollectionAttempts?: number;
+  experimentLimits?: Partial<ExperimentLimits>;
 }
 
 /**
@@ -202,6 +205,19 @@ export function buildAgentSystem(options: BuildAgentSystemOptions) {
     maxCollectionAttempts: options.analyticsMaxCollectionAttempts,
   });
 
+  // Experiments orchestrate the existing services; they never reimplement
+  // content generation, publishing or metrics.
+  const experimentService = new ExperimentService({
+    experimentRepository,
+    contentRepository,
+    agentProfileRepository,
+    outboxRepository,
+    analyticsService,
+    publishingService,
+    logger: options.logger,
+    limits: options.experimentLimits,
+  });
+
   const toolRouter = new ToolRouter(
     [
       new SearchWebTool(),
@@ -274,6 +290,7 @@ export function buildAgentSystem(options: BuildAgentSystemOptions) {
     agentRunService,
     publishingService,
     analyticsService,
+    experimentService,
     analyticsProvider,
     mediaResolver,
     platforms,

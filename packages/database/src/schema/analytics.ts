@@ -1,5 +1,5 @@
 import { relations } from "drizzle-orm";
-import { boolean, index, jsonb, numeric, pgTable, text, timestamp, unique, uuid } from "drizzle-orm/pg-core";
+import { boolean, index, integer, jsonb, numeric, pgTable, text, timestamp, unique, uuid } from "drizzle-orm/pg-core";
 import { agentProfiles } from "./agent.js";
 import { contentPosts } from "./content.js";
 import { socialAccounts } from "./core.js";
@@ -168,6 +168,15 @@ export const analyticsInsights = pgTable(
   ],
 );
 
+/**
+ * A controlled experiment on one variable (Phase 6).
+ *
+ * Configuration is stored, not inferred: the sample requirement, observation
+ * window and minimum lift are written onto the row when the experiment is
+ * created, so an experiment is evaluated against the rules it was designed
+ * with — changing the defaults later cannot retroactively turn a past
+ * "inconclusive" into a "winner".
+ */
 export const experiments = pgTable(
   "experiments",
   {
@@ -175,17 +184,49 @@ export const experiments = pgTable(
     agentProfileId: uuid("agent_profile_id")
       .notNull()
       .references(() => agentProfiles.id, { onDelete: "cascade" }),
+    /** Denormalized from the profile so concurrency rules can be enforced per account cheaply. */
+    socialAccountId: uuid("social_account_id").references(() => socialAccounts.id, { onDelete: "cascade" }),
     name: text("name").notNull(),
     hypothesis: text("hypothesis"),
     status: experimentStatusEnum("status").notNull().default("draft"),
+
+    // --- Phase 6 design ---
+    /** The single thing being varied: format | topic | hook | cta | caption_style | posting_time. */
+    variable: text("variable"),
+    /** Canonical analytics metric name the result is judged on. */
+    primaryMetric: text("primary_metric"),
+    secondaryMetrics: jsonb("secondary_metrics"),
+    /** Frozen at creation — see the note above. */
+    minSamplesPerVariant: integer("min_samples_per_variant"),
+    observationWindowHours: integer("observation_window_hours"),
+    maxDurationDays: integer("max_duration_days"),
+    minRelativeLift: numeric("min_relative_lift"),
+    /** Which agent run proposed it, when the ExperimentAgent did. */
+    proposedByAgentRunId: uuid("proposed_by_agent_run_id"),
+    /** Free-text reason for pause/cancel/failure — shown to the operator. */
+    statusReason: text("status_reason"),
+
     startedAt: timestamp("started_at", { withTimezone: true }),
     endedAt: timestamp("ended_at", { withTimezone: true }),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
   },
-  (table) => [index("experiments_agent_profile_id_idx").on(table.agentProfileId)],
+  (table) => [
+    index("experiments_agent_profile_id_idx").on(table.agentProfileId),
+    index("experiments_social_account_id_idx").on(table.socialAccountId),
+    index("experiments_status_idx").on(table.status),
+  ],
 );
 
+/**
+ * One arm of an experiment. Exactly one variant per experiment has
+ * `role = 'control'`.
+ *
+ * The variant→posts link is `content_posts.experiment_variant_id` (added in
+ * Phase 5), not the legacy 1:1 `content_post_id` column here — a variant needs
+ * many posts to reach its sample size. `content_post_id` is retained only so
+ * pre-Phase-6 rows remain valid.
+ */
 export const experimentVariants = pgTable(
   "experiment_variants",
   {
@@ -194,15 +235,65 @@ export const experimentVariants = pgTable(
       .notNull()
       .references(() => experiments.id, { onDelete: "cascade" }),
     name: text("name").notNull(),
+    /** Legacy Phase 1 single-post link. Superseded by content_posts.experiment_variant_id. */
     contentPostId: uuid("content_post_id").references(() => contentPosts.id, {
       onDelete: "set null",
     }),
+    /** "control" | "variant" — the control is the baseline arm. */
+    role: text("role"),
+    /** The value this arm holds for the experiment's variable, e.g. "reel" or "pain_point". */
+    variableValue: text("variable_value"),
+    description: text("description"),
+    /** "active" | "cancelled" — a cancelled variant must never publish. */
+    status: text("status").notNull().default("active"),
+    targetSampleSize: integer("target_sample_size"),
     allocationPct: numeric("allocation_pct").notNull().default("50"),
     results: jsonb("results"),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
   },
-  (table) => [index("experiment_variants_experiment_id_idx").on(table.experimentId)],
+  (table) => [
+    index("experiment_variants_experiment_id_idx").on(table.experimentId),
+    unique("experiment_variants_name_key").on(table.experimentId, table.name),
+  ],
+);
+
+/**
+ * Append-only evaluation history.
+ *
+ * Results are never overwritten: each evaluation is a new row, so an
+ * experiment's conclusion can be audited against the data that existed when it
+ * was drawn. `evaluation_key` is derived from the sample counts, which makes
+ * re-running an evaluation over unchanged data a no-op rather than a duplicate
+ * — the database enforces that, not the caller.
+ */
+export const experimentEvaluations = pgTable(
+  "experiment_evaluations",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    experimentId: uuid("experiment_id")
+      .notNull()
+      .references(() => experiments.id, { onDelete: "cascade" }),
+    /** Deterministic from the inputs: same samples in, same key. */
+    evaluationKey: text("evaluation_key").notNull(),
+    /** variant_winner | control_winner | no_clear_winner | inconclusive | insufficient_data */
+    outcome: text("outcome").notNull(),
+    primaryMetric: text("primary_metric").notNull(),
+    controlValue: numeric("control_value"),
+    variantValue: numeric("variant_value"),
+    relativeLift: numeric("relative_lift"),
+    /** low | medium | high — computed, never invented by the LLM. */
+    confidence: text("confidence"),
+    sampleSizes: jsonb("sample_sizes").notNull(),
+    /** Per-variant metric detail plus the thresholds applied, so the verdict is auditable. */
+    detail: jsonb("detail"),
+    conclusion: text("conclusion"),
+    evaluatedAt: timestamp("evaluated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    index("experiment_evaluations_experiment_id_idx").on(table.experimentId),
+    unique("experiment_evaluations_key").on(table.experimentId, table.evaluationKey),
+  ],
 );
 
 export const analyticsSnapshotsRelations = relations(analyticsSnapshots, ({ one }) => ({

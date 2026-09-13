@@ -4,4 +4,5 @@ export * from "./content-planner-agent.js";
 export * from "./content-creator-agent.js";
 export * from "./reviewer-agent.js";
 export * from "./analytics-agent.js";
+export * from "./experiment-agent.js";
 export * from "./skeleton-agents.js";

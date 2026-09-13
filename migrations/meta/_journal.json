@@ -57,6 +57,13 @@
       "when": 1789236668452,
       "tag": "0007_long_sphinx",
       "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "7",
+      "when": 1789248601430,
+      "tag": "0008_steep_lilith",
+      "breakpoints": true
     }
   ]
 }

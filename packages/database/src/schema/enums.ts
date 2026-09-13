@@ -61,11 +61,28 @@ export const publishingJobStatusEnum = pgEnum("publishing_job_status", [
   "cancelled",
 ]);
 
+/**
+ * Phase 6 lifecycle. `draft`/`running`/`completed`/`aborted` are the original
+ * Phase 1 values, kept so existing rows stay valid; the rest are appended via
+ * ALTER TYPE ... ADD VALUE, which never rewrites data.
+ *
+ *   draft -> ready -> running -> analyzing -> completed | inconclusive
+ *
+ * `paused`, `cancelled` and `failed` are exits from `running`. `inconclusive`
+ * is a terminal *success* of the process — the experiment ran correctly and
+ * the data did not support a winner, which is a real answer, not a failure.
+ */
 export const experimentStatusEnum = pgEnum("experiment_status", [
   "draft",
   "running",
   "completed",
   "aborted",
+  "ready",
+  "analyzing",
+  "paused",
+  "cancelled",
+  "failed",
+  "inconclusive",
 ]);
 
 export const goalStatusEnum = pgEnum("goal_status", ["active", "completed", "abandoned"]);

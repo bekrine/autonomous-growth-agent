@@ -2,7 +2,7 @@ import type { Agent, AgentContext, AgentResult } from "../types.js";
 
 /**
  * Shared skeleton for agents not yet wired into the orchestrator.
- * AnalyticsAgent graduated out of here in Phase 5 — see analytics-agent.ts. Each
+ * AnalyticsAgent graduated out of here in Phase 5, ExperimentAgent in Phase 6. Each
  * records a single "not_implemented" decision so the run history stays
  * consistent once these are invoked, and gives a single place to flesh
  * out real behavior later without changing the Agent contract.
@@ -21,10 +21,6 @@ abstract class SkeletonAgent implements Agent {
       actions: [],
     };
   }
-}
-
-export class ExperimentAgent extends SkeletonAgent {
-  readonly name = "experiment" as const;
 }
 
 export class CommunityAgent extends SkeletonAgent {

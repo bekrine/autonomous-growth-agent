@@ -68,6 +68,41 @@ export interface ResearchSignalSummary {
   createdAt: string;
 }
 
+/**
+ * What ExperimentAgent is being asked to do. Both variants carry fully
+ * pre-computed inputs — the agent never queries anything itself.
+ */
+export type ExperimentAgentTask =
+  | { mode: "propose"; proposal: ExperimentProposalInput }
+  | { mode: "summarize"; summary: ExperimentSummaryInput };
+
+export interface ExperimentProposalInput {
+  niche: string | null;
+  targetAudience: string | null;
+  postCount: number;
+  baseline: Record<string, number>;
+  insights: { type: string; dimensionValue: string | null; finding: string; confidence?: number; sampleSize?: number }[];
+  recentPosts: { format: string | null; contentPillar: string | null; metrics: Record<string, number | undefined> }[];
+  pastExperiments: { name: string; variable: string | null; outcome: string | null; conclusion: string | null }[];
+  activeVariables: string[];
+  unavailableMetrics: string[];
+}
+
+export interface ExperimentSummaryInput {
+  name: string;
+  hypothesis: string;
+  variable: string;
+  primaryMetric: string;
+  outcome: string;
+  confidence: string;
+  controlValue?: number;
+  variantValue?: number;
+  relativeLift?: number;
+  sampleSizes: Record<string, number>;
+  reasons: string[];
+  conclusion: string;
+}
+
 /** Shape of the measured data handed to AnalyticsAgent. Mirrors AnalyticsPromptInput. */
 export interface AnalyticsAgentInput {
   niche: string | null;
@@ -109,6 +144,11 @@ export interface AgentContextData {
    * analysis was requested.
    */
   analyticsInput?: AnalyticsAgentInput;
+  /**
+   * Task for ExperimentAgent (Phase 6): either design a test, or explain a
+   * result the engine already computed. Absent for ordinary runs.
+   */
+  experimentInput?: ExperimentAgentTask;
   goal: AgentGoalContext | null;
   currentStrategy: StrategyContext | null;
   recentContent: RecentContentSummary[];
