@@ -25,6 +25,18 @@ export class ContentGenerationService {
     return this.agentRunService.getContent(contentPostId);
   }
 
+  /**
+   * Resolves the content post for an idea. Queued generation returns only a
+   * job id, so a caller that wants to watch progress needs a way to find the
+   * post the worker is building — this is it. Returns null until the worker
+   * has created it.
+   */
+  async getContentForIdea(contentIdeaId: string) {
+    const post = await this.contentRepository.findPostByIdeaId(contentIdeaId);
+    if (!post) return null;
+    return this.agentRunService.getContent(post.id);
+  }
+
   async getVersions(contentPostId: string) {
     return this.agentRunService.getContentVersions(contentPostId);
   }

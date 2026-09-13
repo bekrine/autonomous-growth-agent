@@ -216,6 +216,45 @@ export function useContentVersions(contentPostId: string | null) {
   });
 }
 
+/** Content statuses that mean the pipeline has stopped working on a post. */
+export const TERMINAL_CONTENT_STATUSES = ["ready_for_publishing", "review_failed", "generation_failed"];
+
+/**
+ * Queues generation instead of blocking on it. Reels render a real video,
+ * which takes minutes — long enough that a synchronous request looks like a
+ * frozen page.
+ */
+export function useQueueContentGeneration() {
+  return useMutation({
+    mutationFn: (contentIdeaId: string) =>
+      fetchJson<{ status: string; jobId: string }>(`/content/${contentIdeaId}/generate/queue`, { method: "POST" }),
+  });
+}
+
+/**
+ * Polls for the post a queued job is building. Returns null while the worker
+ * has not created it yet (the API answers 204), and stops polling once the
+ * post reaches a terminal status.
+ */
+export function useContentByIdea(contentIdeaId: string | null, enabled: boolean) {
+  return useQuery({
+    queryKey: ["content-by-idea", contentIdeaId],
+    queryFn: async () => {
+      const response = await fetch(`${API_BASE}/content/by-idea/${contentIdeaId}`);
+      if (response.status === 204) return null;
+      if (!response.ok) throw new Error("Failed to check generation progress.");
+      return (await response.json()) as ContentDto;
+    },
+    enabled: Boolean(contentIdeaId) && enabled,
+    refetchInterval: (query) => {
+      const data = query.state.data as ContentDto | null | undefined;
+      // Keep polling until the pipeline reaches a terminal state.
+      if (data && TERMINAL_CONTENT_STATUSES.includes(data.status)) return false;
+      return 4000;
+    },
+  });
+}
+
 /** Runs ContentCreator -> media -> Reviewer synchronously; `contentIdeaId` is the *idea*, the result is the content post. */
 export function useGenerateContent() {
   const queryClient = useQueryClient();

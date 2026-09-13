@@ -5,9 +5,12 @@ import {
   useAccounts,
   useAgentRun,
   useContent,
+  useContentByIdea,
   useContentVersions,
   useGenerateContent,
+  useQueueContentGeneration,
   useStartAgentRun,
+  TERMINAL_CONTENT_STATUSES,
 } from "@/lib/api";
 import { StatusBadge } from "@/components/ui/status-badge";
 import { GeneratedContentDetail } from "./generated-content-detail";
@@ -28,6 +31,9 @@ export function ContentGenerationPanel() {
 
   const startRun = useStartAgentRun();
   const generate = useGenerateContent();
+  const queueGenerate = useQueueContentGeneration();
+  /** Set only while a queued (reel) job is in flight, so polling stays scoped. */
+  const [queuedIdeaId, setQueuedIdeaId] = useState<string | null>(null);
   const runQuery = useAgentRun(activeRunId);
   const contentQuery = useContent(contentPostId);
   const versionsQuery = useContentVersions(contentPostId);
@@ -35,6 +41,16 @@ export function ContentGenerationPanel() {
   const accounts = accountsQuery.data ?? [];
   const effectiveAccountId = selectedAccountId || accounts[0]?.id || "";
   const ideas = useMemo(() => runQuery.data?.contentIdeas ?? [], [runQuery.data]);
+
+  const selectedIdea = ideas.find((idea) => idea.id === selectedIdeaId) ?? null;
+  // Reels render a real video, which takes minutes — far too long to hold an
+  // HTTP request open, so they go through the queue and we poll instead.
+  const isReel = (selectedIdea?.format ?? "").toLowerCase().includes("reel") ||
+    (selectedIdea?.format ?? "").toLowerCase().includes("video");
+
+  const queuedContent = useContentByIdea(queuedIdeaId, Boolean(queuedIdeaId));
+  const queuedResult = queuedContent.data ?? null;
+  const queuedFinished = Boolean(queuedResult && TERMINAL_CONTENT_STATUSES.includes(queuedResult.status));
 
   async function handleStartRun() {
     if (!effectiveAccountId) return;
@@ -46,12 +62,22 @@ export function ContentGenerationPanel() {
 
   async function handleGenerate() {
     if (!selectedIdeaId) return;
+
+    if (isReel) {
+      setContentPostId(null);
+      setQueuedIdeaId(selectedIdeaId);
+      await queueGenerate.mutateAsync(selectedIdeaId);
+      return;
+    }
+
     const result = await generate.mutateAsync(selectedIdeaId);
     setContentPostId(result.contentId);
   }
 
-  const content = contentQuery.data;
+  // A finished queued job takes over as the displayed content.
+  const content = contentQuery.data ?? (queuedFinished ? queuedResult : null);
   const generation = content?.generation ?? null;
+  const busy = generate.isPending || queueGenerate.isPending || (Boolean(queuedIdeaId) && !queuedFinished);
 
   return (
     <div className="space-y-6">
@@ -91,20 +117,42 @@ export function ContentGenerationPanel() {
         </select>
         <button
           onClick={() => void handleGenerate()}
-          disabled={!selectedIdeaId || generate.isPending}
+          disabled={!selectedIdeaId || busy}
           className="rounded-md bg-sky-500 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-sky-400 disabled:cursor-not-allowed disabled:opacity-50"
         >
-          {generate.isPending ? "Generating…" : "2. Generate content"}
+          {busy ? (isReel ? "Rendering…" : "Generating…") : isReel ? "2. Generate reel (queued)" : "2. Generate content"}
         </button>
 
         {startRun.isError ? <p className="text-sm text-rose-400">{(startRun.error as Error).message}</p> : null}
         {generate.isError ? <p className="text-sm text-rose-400">{(generate.error as Error).message}</p> : null}
+        {queueGenerate.isError ? (
+          <p className="text-sm text-rose-400">{(queueGenerate.error as Error).message}</p>
+        ) : null}
       </div>
 
       {generate.isPending ? (
         <p className="text-sm text-white/50">
           Running Content Creator → media generation → Reviewer (regenerates automatically if rejected)…
         </p>
+      ) : null}
+
+      {queuedIdeaId && !queuedFinished ? (
+        <div className="rounded-xl border border-surface-border bg-surface-raised p-5">
+          <p className="text-sm text-white/70">
+            Queued on the content worker — rendering a real video.
+          </p>
+          <p className="mt-1 text-xs text-white/40">
+            {queuedResult
+              ? `Status: ${queuedResult.status.replace(/_/g, " ")}`
+              : "Waiting for the worker to pick up the job…"}
+            {" · "}
+            Video generation typically takes 3–5 minutes. You can leave this page open.
+          </p>
+        </div>
+      ) : null}
+
+      {queuedContent.isError ? (
+        <p className="text-sm text-rose-400">{(queuedContent.error as Error).message}</p>
       ) : null}
 
       {content ? (
