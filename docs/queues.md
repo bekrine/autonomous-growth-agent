@@ -5,8 +5,9 @@
 Defined once in `packages/shared/src/queues.ts` (`QUEUE_NAMES`) so the API (producer) and
 workers (consumers) can't drift:
 
-- `research`, `strategy`, `experiments` — per-stage placeholder queues (Phase 1), unused
-  by the real flows so far.
+- `research`, `strategy` — per-stage placeholder queues (Phase 1), unused by the real
+  flows so far.
+- `experiments` — **real** (Phase 6). Checks experiment progress and runs evaluation.
 - `analytics` — **real** (Phase 5). Schedules and performs bounded metric collection.
 - `publishing` — **real** (Phase 4). Publishes one approved content post to a connected
   platform account.
@@ -19,13 +20,33 @@ workers (consumers) can't drift:
 
 | Worker | Queues |
 |---|---|
-| `workers/agent-worker` | `research`, `strategy`, `experiments` (placeholders), `agent-run` + `content` (real) |
+| `workers/agent-worker` | `research`, `strategy` (placeholders), `agent-run`, `content`, `experiments` (real) |
 | `workers/publishing-worker` | `publishing` (real) |
 | `workers/analytics-worker` | `analytics` (real) |
 
 The remaining per-stage queues still run placeholder processors (`processors.ts`): they log
 the job and acknowledge it. `agent-run`, `content`, `publishing` and `analytics` are fully
 implemented — see below.
+
+## The `experiments` queue
+
+| Job | Effect |
+|---|---|
+| `check-experiment-progress` | Evaluates **only** once every arm has met its sample target |
+| `evaluate-experiment` | Evaluates immediately |
+
+```
+BullMQ job { experimentId }
+      ↓
+createExperimentProcessor (job plumbing only — no experiment logic)
+      ↓
+ExperimentService.getProgress() / .evaluate()
+```
+
+Concurrency is 1: two concurrent evaluations of the same experiment would race for the
+same idempotency key. `check-experiment-progress` deliberately does nothing while arms are
+short, rather than recording an "insufficient data" row on every tick. See
+[`experiments.md`](experiments.md).
 
 ## The `analytics` queue
 

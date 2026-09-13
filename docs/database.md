@@ -169,6 +169,27 @@ snapshots have a NULL `content_post_id`, and Postgres's default treats every NUL
 distinct — so without it the same account/day could insert repeatedly and silently corrupt
 follower history.
 
+### Phase 6 additions (experiments)
+
+- **`experiments`** gained `social_account_id`, `variable`, `primary_metric`,
+  `secondary_metrics`, `min_samples_per_variant`, `observation_window_hours`,
+  `max_duration_days`, `min_relative_lift`, `proposed_by_agent_run_id` and
+  `status_reason`. The design config is **frozen onto the row at creation**, so an
+  experiment is judged by the rules it was designed with — changing a default later cannot
+  retroactively turn a past `inconclusive` into a `winner`.
+- **`experiment_variants`** gained `role` (`control`|`variant`), `variable_value`,
+  `description`, `status` and `target_sample_size`. The variant→posts link is
+  `content_posts.experiment_variant_id` (added in Phase 5), not the legacy 1:1
+  `content_post_id` — an arm needs many posts to reach its sample size.
+- **`experiment_evaluations`** is new and **append-only**: every evaluation is a row, so a
+  conclusion can be audited against the data behind it. `UNIQUE (experiment_id,
+  evaluation_key)` makes re-evaluating unchanged data a no-op rather than a duplicate
+  conclusion; the key is derived from the primary metric and each arm's observation count.
+- **`experiment_status`** extended non-destructively from 4 to 10 values via
+  `ALTER TYPE ... ADD VALUE` (migration `0008`).
+
+See [`experiments.md`](experiments.md).
+
 ## Repositories
 
 `packages/database/src/repositories/` wraps every table group behind a small class

@@ -5,11 +5,12 @@ import { createImageGenerator, createObjectStorage } from "@agent/media";
 import { buildAgentSystem } from "@agent/agent-core";
 import { createLogger, createRedisConnection, loadEnv } from "@agent/shared";
 import { createPlaceholderProcessor } from "./processors.js";
+import { createExperimentProcessor } from "./experiment-processor.js";
 import { createAgentRunProcessor } from "./agent-run-processor.js";
 import { createContentGenerationProcessor } from "./content-generation-processor.js";
 import { OutboxPublisher } from "./outbox-publisher.js";
 
-const PLACEHOLDER_QUEUES = ["research", "strategy", "experiments"] as const;
+const PLACEHOLDER_QUEUES = ["research", "strategy"] as const;
 
 async function main() {
   const env = loadEnv();
@@ -47,6 +48,15 @@ async function main() {
     logger,
     imageGenerator,
     objectStorage,
+    experimentLimits: {
+      minSamplesPerVariant: env.EXPERIMENT_MIN_SAMPLES_PER_VARIANT,
+      minRelativeLift: env.EXPERIMENT_MIN_RELATIVE_LIFT,
+      observationWindowHours: env.EXPERIMENT_OBSERVATION_WINDOW_HOURS,
+      maxDurationDays: env.EXPERIMENT_MAX_DURATION_DAYS,
+      maxActiveExperimentsPerAccount: env.MAX_ACTIVE_EXPERIMENTS_PER_ACCOUNT,
+      maxExperimentContentPerDay: env.MAX_EXPERIMENT_CONTENT_PER_DAY,
+      maxSampleImbalanceRatio: env.EXPERIMENT_MAX_SAMPLE_IMBALANCE_RATIO,
+    },
     maxRegenerationAttempts: env.MAX_CONTENT_GENERATION_ATTEMPTS,
     maxDailyMediaGenerations: env.MAX_DAILY_MEDIA_GENERATIONS,
   });
@@ -58,6 +68,14 @@ async function main() {
     (queueName) => new Worker(queueName, createPlaceholderProcessor(queueName, logger), { connection }),
   );
 
+  // The experiments queue is real as of Phase 6. Concurrency 1: evaluation
+  // reads analytics and writes a verdict, and two concurrent evaluations of the
+  // same experiment would race for the same idempotency key.
+  const experimentWorker = new Worker(
+    "experiments",
+    createExperimentProcessor(agentSystem.experimentService, logger),
+    { connection, concurrency: 1 },
+  );
   const agentRunWorker = new Worker(
     "agent-run",
     createAgentRunProcessor(agentSystem.agentRunService, logger),
@@ -73,7 +91,7 @@ async function main() {
     { connection },
   );
 
-  const workers = [...placeholderWorkers, agentRunWorker, contentWorker];
+  const workers = [...placeholderWorkers, agentRunWorker, contentWorker, experimentWorker];
   for (const worker of workers) {
     worker.on("failed", (job, err) => {
       logger.error({ queue: worker.name, jobId: job?.id, err: err.message }, "worker.job_failed");

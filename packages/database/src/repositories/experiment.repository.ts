@@ -1,4 +1,4 @@
-import { and, desc, eq, inArray, sql } from "drizzle-orm";
+import { and, desc, eq, gte, inArray, sql } from "drizzle-orm";
 import type { DrizzleClient } from "../client.js";
 import {
   agentProfiles,
@@ -207,12 +207,9 @@ export class ExperimentRepository {
     const rows = await this.db
       .select({ count: sql<number>`count(*)::int` })
       .from(contentPosts)
-      .where(
-        and(
-          eq(contentPosts.experimentId, experimentId),
-          sql`${contentPosts.createdAt} >= ${since}`,
-        ),
-      );
+      // gte(), not a raw sql fragment: a raw fragment loses the column's type
+      // mapping and the driver receives an unbound Date.
+      .where(and(eq(contentPosts.experimentId, experimentId), gte(contentPosts.createdAt, since)));
     return rows[0]?.count ?? 0;
   }
 

@@ -41,6 +41,16 @@ export class AgentRunService {
     return this.deps.orchestrator.analyzePerformance(accountId);
   }
 
+  /** Designs an experiment from measured analytics. Returns a proposal for review — it creates nothing. */
+  async proposeExperiment(accountId: string) {
+    return this.deps.orchestrator.proposeExperiment(accountId);
+  }
+
+  /** Explains an already-computed experiment result. Cannot change the outcome or the strategy. */
+  async summarizeExperiment(experimentId: string) {
+    return this.deps.orchestrator.summarizeExperiment(experimentId);
+  }
+
   async startRun(accountId: string) {
     const outcome = await this.deps.orchestrator.executeRun(accountId);
     const response = await this.buildRunResponse(outcome.runId, outcome.status, accountId);

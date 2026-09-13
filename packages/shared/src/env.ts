@@ -116,6 +116,22 @@ const envSchema = z.object({
     .default("true")
     .transform((v) => v !== "false"),
 
+  /**
+   * Experiments (Phase 6). Development defaults chosen to keep a POC honest —
+   * not statistically universal rules. Frozen onto each experiment at creation
+   * so changing them cannot re-decide a past result.
+   */
+  EXPERIMENT_MIN_SAMPLES_PER_VARIANT: z.coerce.number().int().min(1).max(100).optional().default(5),
+  EXPERIMENT_MIN_RELATIVE_LIFT: z.coerce.number().min(0).max(10).optional().default(0.1),
+  EXPERIMENT_OBSERVATION_WINDOW_HOURS: z.coerce.number().int().min(1).optional().default(24),
+  EXPERIMENT_MAX_DURATION_DAYS: z.coerce.number().int().min(1).max(365).optional().default(14),
+  /** Conservative by default: concurrent experiments make attribution harder. */
+  MAX_ACTIVE_EXPERIMENTS_PER_ACCOUNT: z.coerce.number().int().min(1).max(20).optional().default(1),
+  /** Caps LLM, image-generation and publishing cost per experiment. */
+  MAX_EXPERIMENT_CONTENT_PER_DAY: z.coerce.number().int().min(1).max(50).optional().default(4),
+  /** 8 posts vs 1 is not a comparison, however large the difference looks. */
+  EXPERIMENT_MAX_SAMPLE_IMBALANCE_RATIO: z.coerce.number().min(1).max(10).optional().default(2),
+
   MAX_CONTENT_GENERATION_ATTEMPTS: z.coerce.number().int().min(1).max(10).optional().default(3),
   MAX_DAILY_MEDIA_GENERATIONS: z.coerce.number().int().min(0).optional().default(50),
 

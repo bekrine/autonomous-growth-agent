@@ -185,14 +185,14 @@ researchProvider })` without changing `ResearchAgent` or anything downstream of 
 
 ## Skeletons
 
-`ExperimentAgent` and `CommunityAgent` (in
+`CommunityAgent` (in
 `packages/agent-core/src/agents/skeleton-agents.ts`) implement
 `Agent` and record a single `not_implemented` decision. They exist so the orchestrator's
 agent list, the `AgentName` union, and any code that switches on agent name already has a
 stable, typed shape to extend — implementing one is adding logic to its `run()` method,
 not changing any interface. They are not part of the run list yet.
 
-`AnalyticsAgent` graduated out of this file in Phase 5 — see below.
+`AnalyticsAgent` graduated out of this file in Phase 5 and `ExperimentAgent` in Phase 6 — see below.
 
 ## Orchestration
 
@@ -269,3 +269,29 @@ overclaim, so this is enforced in code rather than trusted to the prompt.
 
 Each observation is recorded as a `performance_observation` decision with its evidence and
 sample size — a queryable row, not a prose blob. See [`analytics.md`](analytics.md).
+
+## ExperimentAgent (Phase 6)
+
+Proposes experiment designs and explains completed results. Two entry points:
+`AgentOrchestrator.proposeExperiment(accountId)` and `.summarizeExperiment(experimentId)`.
+
+**Proposing**: it receives analytics observations, the account baseline, recent measured
+content, past experiment results and the variables already under test. Its schema restricts
+it to the supported variables and metrics, so it cannot invent a variable the engine has no
+way to apply. Confidence is capped at 0.4 when fewer than five posts have analytics.
+
+**Summarizing**: the outcome, lift and confidence are *given* to it already computed. It
+puts them into words and may suggest a follow-up. It is instructed never to say "proven" or
+"significant", because no significance test was performed.
+
+Three boundaries:
+
+1. **It proposes; validation decides.** `ExperimentValidationService` re-checks every
+   proposal against the confounder, sample, duration and concurrency rules. A confident
+   model does not get a pass.
+2. **It computes no statistics.** Every number it sees was produced deterministically.
+3. **It cannot change strategy.** Its output has a `recommendation` field, explicitly a
+   suggestion for a human. An integration test asserts `strategy_versions` is unchanged
+   across a full experiment run.
+
+See [`experiments.md`](experiments.md).

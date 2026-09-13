@@ -346,8 +346,14 @@ At the end of Phase 5 the system has **MEASURED**, not **LEARNED**:
 | Phase | Capability |
 |---|---|
 | 5 | Measure + understand |
-| 6 | Experiment |
+| 6 | Experiment ([`experiments.md`](experiments.md)) |
 | 7 | Learn + adapt |
+
+Phase 6 consumes this layer directly: `ExperimentEvaluationService` groups
+`analytics_metrics` by experiment arm via `content_posts.experiment_variant_id` and
+compares medians. It creates no metrics of its own — an experiment can only be judged on a
+metric Phase 5 actually produces, which is why `EXPERIMENT_METRICS` is a subset of what is
+measured here.
 
 A generated summary is not learning. Nothing in this phase closes the loop back into
 strategy — that is Phase 7's job, and it will build on the raw history preserved here.

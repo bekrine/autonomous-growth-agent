@@ -6,6 +6,7 @@ import {
   StrategyRepository,
   type AgentProfileRepository,
   type AnalyticsRepository,
+  type ExperimentRepository,
   type Database,
   type DrizzleClient,
   type SocialAccountRepository,
@@ -26,6 +27,7 @@ import type { ReviewResult } from "./prompts/reviewer/index.js";
 import type { AnalyticsInsightResult } from "./prompts/analytics/index.js";
 import type { AnalyticsService } from "./analytics/analytics-service.js";
 import { buildAnalyticsAgentInput } from "./analytics/performance-analysis.js";
+import type { ExperimentProposal, ExperimentSummaryOutput } from "./prompts/experiment/index.js";
 
 export interface OrchestratorDependencies {
   db: Database;
@@ -57,6 +59,26 @@ export interface AnalyticsAnalysisOutcome {
   status: "completed" | "failed";
   postCount: number;
   insights?: AnalyticsInsightResult;
+  error?: string;
+}
+
+/** Repositories the experiment paths read from. Kept separate so nothing else changes. */
+export interface OrchestratorExperimentDependencies {
+  experimentRepository: ExperimentRepository;
+}
+
+export interface ExperimentProposalOutcome {
+  runId: string;
+  status: "completed" | "failed";
+  proposal?: ExperimentProposal;
+  error?: string;
+}
+
+export interface ExperimentSummaryOutcome {
+  runId: string;
+  status: "completed" | "failed";
+  outcome: string;
+  summary?: ExperimentSummaryOutput;
   error?: string;
 }
 
@@ -97,6 +119,8 @@ export class AgentOrchestrator {
     private readonly contentAgents: { contentCreator: Agent; reviewer: Agent },
     private readonly analyticsAgent?: Agent,
     private readonly analyticsDeps?: OrchestratorAnalyticsDependencies,
+    private readonly experimentAgent?: Agent,
+    private readonly experimentDeps?: OrchestratorExperimentDependencies,
   ) {}
 
   /**
@@ -366,6 +390,169 @@ export class AgentOrchestrator {
       await agentRunRepository.markFinished(run.id, "failed", message);
       logger.error({ runId: run.id, accountId, error: message }, "analytics_run.failed");
       return { runId: run.id, status: "failed", postCount: 0, error: message };
+    }
+  }
+
+  /**
+   * Asks the ExperimentAgent to design a test from what analytics already
+   * measured. The proposal is returned for review — it is NOT created here,
+   * because validation and persistence belong to ExperimentService.
+   */
+  async proposeExperiment(accountId: string): Promise<ExperimentProposalOutcome> {
+    const { agentRunRepository, contextLoader, toolRouter, llm, logger } = this.deps;
+
+    if (!this.experimentAgent || !this.analyticsDeps || !this.experimentDeps) {
+      throw new Error("ExperimentAgent is not configured on this orchestrator");
+    }
+
+    const run = await agentRunRepository.create(accountId);
+    await agentRunRepository.markRunning(run.id);
+
+    try {
+      const contextData = await contextLoader.load(accountId);
+      const analyticsInput = await buildAnalyticsAgentInput({
+        analyticsService: this.analyticsDeps.analyticsService,
+        analyticsRepository: this.analyticsDeps.analyticsRepository,
+        socialAccountRepository: this.analyticsDeps.socialAccountRepository,
+        agentProfileRepository: this.analyticsDeps.agentProfileRepository,
+        socialAccountId: accountId,
+      });
+
+      const [insights, active, past] = await Promise.all([
+        this.analyticsDeps.analyticsRepository.listInsights(accountId, 20),
+        this.experimentDeps.experimentRepository.listActiveForAccount(accountId),
+        this.experimentDeps.experimentRepository.listByAccount(accountId),
+      ]);
+
+      // Past results are supplied so the agent does not re-run a question that
+      // already has an answer.
+      const pastExperiments = await Promise.all(
+        past.slice(0, 10).map(async (experiment) => {
+          const latest = await this.experimentDeps!.experimentRepository.findLatestEvaluation(experiment.id);
+          return {
+            name: experiment.name,
+            variable: experiment.variable,
+            outcome: latest?.outcome ?? null,
+            conclusion: latest?.conclusion ?? null,
+          };
+        }),
+      );
+
+      const result = await this.experimentAgent.run({
+        ...contextData,
+        experimentInput: {
+          mode: "propose",
+          proposal: {
+            niche: analyticsInput.niche,
+            targetAudience: analyticsInput.targetAudience,
+            postCount: analyticsInput.postCount,
+            baseline: analyticsInput.baseline,
+            insights: insights.map((i) => ({
+              type: i.insightType,
+              dimensionValue: i.dimensionValue,
+              finding: i.finding,
+              confidence: i.confidence === null ? undefined : Number(i.confidence),
+              sampleSize: i.sampleSize === null ? undefined : Number(i.sampleSize),
+            })),
+            recentPosts: analyticsInput.posts.map((p) => ({
+              format: p.format,
+              contentPillar: p.contentPillar,
+              metrics: p.metrics,
+            })),
+            pastExperiments,
+            activeVariables: active.map((e) => e.variable).filter((v): v is string => Boolean(v)),
+            unavailableMetrics: analyticsInput.unavailableMetrics,
+          },
+        },
+        runId: run.id,
+        accountId,
+        logger,
+        llm,
+        tools: toolRouter,
+        previousResults: {},
+        targetContentIdea: null,
+        regenerationFeedback: [],
+      });
+
+      await this.persistGenericResult(run.id, "experiment", result);
+      await agentRunRepository.markFinished(run.id, "completed");
+
+      const proposal = (result.data as { proposal?: ExperimentProposal } | undefined)?.proposal;
+      logger.info({ runId: run.id, accountId, variable: proposal?.variable }, "experiment_proposal.completed");
+
+      return { runId: run.id, status: "completed", proposal };
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      await agentRunRepository.markFinished(run.id, "failed", message);
+      logger.error({ runId: run.id, accountId, error: message }, "experiment_proposal.failed");
+      return { runId: run.id, status: "failed", error: message };
+    }
+  }
+
+  /**
+   * Asks the ExperimentAgent to explain an already-computed result. The verdict
+   * is passed in; the agent puts it into words and may recommend a follow-up.
+   * It cannot change the outcome or the strategy.
+   */
+  async summarizeExperiment(experimentId: string): Promise<ExperimentSummaryOutcome> {
+    const { agentRunRepository, contextLoader, toolRouter, llm, logger } = this.deps;
+
+    if (!this.experimentAgent || !this.experimentDeps) {
+      throw new Error("ExperimentAgent is not configured on this orchestrator");
+    }
+
+    const experiment = await this.experimentDeps.experimentRepository.findById(experimentId);
+    if (!experiment) throw new NotFoundError("Experiment", experimentId);
+
+    const evaluation = await this.experimentDeps.experimentRepository.findLatestEvaluation(experimentId);
+    if (!evaluation) throw new NotFoundError("ExperimentEvaluation", experimentId);
+
+    const accountId = experiment.socialAccountId!;
+    const run = await agentRunRepository.create(accountId);
+    await agentRunRepository.markRunning(run.id);
+
+    try {
+      const contextData = await contextLoader.load(accountId);
+      const detail = (evaluation.detail ?? {}) as { reasons?: string[] };
+
+      const result = await this.experimentAgent.run({
+        ...contextData,
+        experimentInput: {
+          mode: "summarize",
+          summary: {
+            name: experiment.name,
+            hypothesis: experiment.hypothesis ?? "",
+            variable: experiment.variable ?? "unknown",
+            primaryMetric: evaluation.primaryMetric,
+            outcome: evaluation.outcome,
+            confidence: evaluation.confidence ?? "low",
+            controlValue: evaluation.controlValue === null ? undefined : Number(evaluation.controlValue),
+            variantValue: evaluation.variantValue === null ? undefined : Number(evaluation.variantValue),
+            relativeLift: evaluation.relativeLift === null ? undefined : Number(evaluation.relativeLift),
+            sampleSizes: (evaluation.sampleSizes ?? {}) as Record<string, number>,
+            reasons: detail.reasons ?? [],
+            conclusion: evaluation.conclusion ?? "",
+          },
+        },
+        runId: run.id,
+        accountId,
+        logger,
+        llm,
+        tools: toolRouter,
+        previousResults: {},
+        targetContentIdea: null,
+        regenerationFeedback: [],
+      });
+
+      await this.persistGenericResult(run.id, "experiment", result);
+      await agentRunRepository.markFinished(run.id, "completed");
+
+      const summary = (result.data as { summary?: ExperimentSummaryOutput } | undefined)?.summary;
+      return { runId: run.id, status: "completed", outcome: evaluation.outcome, summary };
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      await agentRunRepository.markFinished(run.id, "failed", message);
+      return { runId: run.id, status: "failed", outcome: evaluation.outcome, error: message };
     }
   }
 

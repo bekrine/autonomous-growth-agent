@@ -49,6 +49,7 @@ import {
 } from "./tools/index.js";
 import {
   AnalyticsAgent,
+  ExperimentAgent,
   ContentCreatorAgent,
   ContentPlannerAgent,
   ResearchAgent,
@@ -273,6 +274,8 @@ export function buildAgentSystem(options: BuildAgentSystemOptions) {
       socialAccountRepository,
       agentProfileRepository,
     },
+    new ExperimentAgent(),
+    { experimentRepository },
   );
 
   const agentRunService = new AgentRunService({

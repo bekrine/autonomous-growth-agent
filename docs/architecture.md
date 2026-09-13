@@ -158,6 +158,41 @@ Four rules shape it:
 
 See [`docs/analytics.md`](analytics.md).
 
+## Experiment engine (Phase 6)
+
+Analytics tells you what happened; experiments tell you whether a deliberate change made a
+difference.
+
+```
+Analytics insight
+      ↓  ExperimentAgent proposes (LLM)
+ExperimentValidationService decides (code)   ← confounders, samples, concurrency
+      ↓
+Experiment ──┬── control arm ──┐
+             └── variant arm ──┤  interleaved across publishing slots
+                               ↓
+        Content Creator (Phase 3) → PublishingService (Phase 4) → Instagram
+                               ↓
+                    AnalyticsService (Phase 5)
+                               ↓
+   ExperimentEvaluationService (deterministic) → result → recommendation
+```
+
+Four rules shape it:
+
+1. **The LLM proposes; code decides.** Allowed variables, metric existence, sample rules,
+   duration and concurrency are enforced in ordinary code. The confounder check rejects
+   designs whose arms differ in more than the variable under test — otherwise a result
+   cannot be attributed to anything.
+2. **Arms are interleaved, not batched.** Publishing all controls Monday and all variants
+   Friday would make the day the variable.
+3. **No statistics from the LLM.** Medians, lift and confidence are computed. Confidence
+   never reaches "high" and has an absolute sample floor, because no significance test is
+   performed — results are *directional*.
+4. **No strategy mutation.** Phase 6 ends at a recommendation; Phase 7 owns acting on it.
+
+See [`docs/experiments.md`](experiments.md).
+
 ## Why a modular monolith
 
 The API, the three workers, and the agent-core/database/policies/llm/social-platforms

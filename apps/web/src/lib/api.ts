@@ -535,3 +535,154 @@ export function useCollectAnalytics() {
     },
   });
 }
+
+// --- Phase 6: experiments ---
+
+export interface ExperimentDto {
+  id: string;
+  name: string;
+  hypothesis: string | null;
+  status: string;
+  variable: string | null;
+  primaryMetric: string | null;
+  secondaryMetrics: string[] | null;
+  minSamplesPerVariant: number | null;
+  observationWindowHours: number | null;
+  maxDurationDays: number | null;
+  minRelativeLift: string | null;
+  statusReason: string | null;
+  startedAt: string | null;
+  endedAt: string | null;
+  createdAt: string;
+}
+
+export interface ExperimentVariantDto {
+  id: string;
+  experimentId: string;
+  name: string;
+  role: string | null;
+  variableValue: string | null;
+  description: string | null;
+  status: string;
+  targetSampleSize: number | null;
+}
+
+export interface ExperimentEvaluationDto {
+  id: string;
+  outcome: string;
+  primaryMetric: string;
+  controlValue: string | null;
+  variantValue: string | null;
+  relativeLift: string | null;
+  confidence: string | null;
+  sampleSizes: Record<string, number>;
+  detail: {
+    summaries?: {
+      variantId: string;
+      name: string;
+      role: string;
+      observations: number;
+      assigned: number;
+      median?: number;
+    }[];
+    thresholds?: Record<string, number>;
+    reasons?: string[];
+  } | null;
+  conclusion: string | null;
+  evaluatedAt: string;
+}
+
+export interface ExperimentProgressDto {
+  experimentId: string;
+  status: string;
+  target: number;
+  totalPublished: number;
+  readyToEvaluate: boolean;
+  variants: {
+    variantId: string;
+    name: string;
+    role: string | null;
+    variableValue: string | null;
+    status: string;
+    assigned: number;
+    published: number;
+    target: number;
+  }[];
+}
+
+export interface ExperimentDetailDto {
+  experiment: ExperimentDto;
+  variants: ExperimentVariantDto[];
+  evaluations: ExperimentEvaluationDto[];
+  posts: { id: string; experimentVariantId: string | null; status: string; publishedAt: string | null }[];
+}
+
+export function useExperiments(accountId: string | null) {
+  return useQuery({
+    queryKey: ["experiments", accountId],
+    queryFn: () => fetchJson<ExperimentDto[]>(`/experiments/${accountId}`),
+    enabled: Boolean(accountId),
+  });
+}
+
+export function useExperimentDetail(experimentId: string | null) {
+  return useQuery({
+    queryKey: ["experiment-detail", experimentId],
+    queryFn: () => fetchJson<ExperimentDetailDto>(`/experiments/detail/${experimentId}`),
+    enabled: Boolean(experimentId),
+  });
+}
+
+export function useExperimentProgress(experimentId: string | null) {
+  return useQuery({
+    queryKey: ["experiment-progress", experimentId],
+    queryFn: () => fetchJson<ExperimentProgressDto>(`/experiments/${experimentId}/progress`),
+    enabled: Boolean(experimentId),
+  });
+}
+
+function experimentAction(path: string, body?: unknown) {
+  return async () => {
+    const response = await fetch(`/api/backend${path}`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body ?? {}),
+    });
+    const payload = await response.json().catch(() => ({}));
+    if (!response.ok) throw new Error(payload?.error?.message ?? "Request failed.");
+    return payload;
+  };
+}
+
+export function useExperimentLifecycle(experimentId: string | null) {
+  const queryClient = useQueryClient();
+  const invalidate = () => {
+    void queryClient.invalidateQueries({ queryKey: ["experiments"] });
+    void queryClient.invalidateQueries({ queryKey: ["experiment-detail", experimentId] });
+    void queryClient.invalidateQueries({ queryKey: ["experiment-progress", experimentId] });
+  };
+
+  return {
+    start: useMutation({ mutationFn: experimentAction(`/experiments/${experimentId}/start`), onSuccess: invalidate }),
+    pause: useMutation({ mutationFn: experimentAction(`/experiments/${experimentId}/pause`), onSuccess: invalidate }),
+    cancel: useMutation({ mutationFn: experimentAction(`/experiments/${experimentId}/cancel`), onSuccess: invalidate }),
+    evaluate: useMutation({
+      mutationFn: experimentAction(`/experiments/${experimentId}/evaluate`),
+      onSuccess: invalidate,
+    }),
+  };
+}
+
+export function useProposeExperiment() {
+  return useMutation({
+    mutationFn: async (accountId: string) => {
+      const response = await fetch("/api/backend/experiments/propose", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ accountId }),
+      });
+      if (!response.ok) throw new Error("Failed to generate a proposal.");
+      return response.json();
+    },
+  });
+}

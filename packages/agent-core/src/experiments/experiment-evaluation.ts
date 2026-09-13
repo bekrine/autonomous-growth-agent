@@ -231,6 +231,16 @@ export class ExperimentEvaluationService {
 }
 
 /**
+ * Absolute floor for anything above "low" confidence, independent of the
+ * experiment's configured minimum.
+ *
+ * Without this, lowering `minSamplesPerVariant` to 1 would let a single post
+ * per arm report "medium" confidence — the configuration would be grading its
+ * own homework. Sample size is a property of the evidence, not of the settings.
+ */
+const MIN_OBSERVATIONS_FOR_MEDIUM_CONFIDENCE = 5;
+
+/**
  * Confidence is computed, never supplied by a model. It rises with sample size
  * and effect size, and is capped at "medium" because no significance test is
  * performed — claiming "high" from a median comparison would overstate what
@@ -242,6 +252,8 @@ function confidenceFor(
   magnitude: number,
 ): ExperimentConfidence {
   const smallest = Math.min(...summaries.map((s) => s.observations));
+  if (smallest < MIN_OBSERVATIONS_FOR_MEDIUM_CONFIDENCE) return "low";
+
   const comfortable = smallest >= limits.minSamplesPerVariant * 2;
   const strongEffect = magnitude >= 0.25;
 

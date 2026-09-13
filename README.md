@@ -29,7 +29,8 @@ See [`docs/architecture.md`](docs/architecture.md) for the full system design,
 [`docs/local-development.md`](docs/local-development.md) to get running.
 [`docs/instagram-setup.md`](docs/instagram-setup.md) covers connecting a real Instagram
 account, [`docs/storage.md`](docs/storage.md) how generated media reaches Cloudflare R2, and
-[`docs/analytics.md`](docs/analytics.md) how published content is measured.
+[`docs/analytics.md`](docs/analytics.md) how published content is measured, and
+[`docs/experiments.md`](docs/experiments.md) how controlled tests are run and judged.
 
 ## Stack
 
@@ -123,7 +124,7 @@ applying migrations, and the full verification walkthrough.
 
 ## Status
 
-**Phases 1–5 are complete.**
+**Phases 1–6 are complete.**
 
 - **Phase 1** — foundation: monorepo, schema, queues, API, policy layer, dashboard shell.
 - **Phase 2** — ResearchAgent, StrategyAgent and ContentPlannerAgent reason over real
@@ -145,12 +146,18 @@ applying migrations, and the full verification walkthrough.
   ladder driven by the `analytics` queue and the outbox, and an `AnalyticsAgent` that
   explains the numbers. It **measures** — it does not change strategy; that is Phase 7.
   See [`docs/analytics.md`](docs/analytics.md).
+- **Phase 6** — experiment engine: the ExperimentAgent proposes a controlled test from
+  analytics, deterministic validation rejects confounded or underpowered designs, arms are
+  interleaved across publishing slots, and evaluation compares medians with an explicit
+  sample floor. Results are **directional**, never "proven", and produce a recommendation —
+  the strategy is not changed automatically; that is Phase 7. See
+  [`docs/experiments.md`](docs/experiments.md).
 - **Media storage** — generated assets live in **Cloudflare R2** behind the existing
   `ObjectStorage` abstraction, with SVG→JPEG conversion so every stored image is genuinely
   publishable. Only `CloudflareR2Storage` knows R2 exists; the Instagram adapter just
   receives a public URL. See [`docs/storage.md`](docs/storage.md).
 
-Still typed skeletons: `ExperimentAgent`, `CommunityAgent`.
+Still a typed skeleton: `CommunityAgent`.
 Still stubs by design: the `FacebookAdapter`, Instagram comments/DMs (Phase 6), real
 research/trend sources, video generation.
 
