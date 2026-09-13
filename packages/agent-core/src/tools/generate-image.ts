@@ -36,6 +36,35 @@ export interface GenerateImageToolOutput {
  * behind MediaStorageService; this tool only knows it gets back a key, a
  * public URL and some metadata.
  */
+/**
+ * Diffusion models render lettering badly — words come out as plausible-looking
+ * gibberish ("create atructudn, form JWTT authenticication"). That is far worse
+ * on a published post than no text at all, because it looks like a mistake
+ * nobody checked rather than a stylistic choice.
+ *
+ * The content agent often asks for captions inside the image, so this strips
+ * that instruction and steers the model toward a clean illustration. The real
+ * words live in the caption and alt text, where they are actually readable.
+ */
+export function buildImagePrompt(visualDirection: string): string {
+  const cleaned = visualDirection
+    // Quoted literals are the words the model would try (and fail) to render.
+    .replace(/["'\u201c\u201d\u2018\u2019][^"'\u201c\u201d\u2018\u2019]{1,120}["'\u201c\u201d\u2018\u2019]/g, "")
+    // Drop only the instruction to show words — not the rest of the scene,
+    // which still describes what the illustration should depict.
+    .replace(/\b(with|showing|displaying|including)\s+(the\s+)?(text|caption|words?|label(?:l?ed)?|title|headline)\b/gi, "showing")
+    .replace(/\s{2,}/g, " ")
+    .replace(/\s+([.,;])/g, "$1")
+    .trim();
+
+  return [
+    cleaned,
+    "Clean modern flat illustration, social-media ready, strong focal point, generous negative space.",
+    // Stated positively and negatively: models respond to both.
+    "IMPORTANT: contain no text, no words, no letters, no numbers, no logos, no watermarks, no UI captions. Communicate the idea visually only.",
+  ].join(" ");
+}
+
 export class GenerateImageTool implements Tool<GenerateImageToolInput, GenerateImageToolOutput> {
   readonly name = "generateImage";
   readonly description = "Generate a real image asset for a piece of content and persist it to object storage.";
@@ -46,7 +75,10 @@ export class GenerateImageTool implements Tool<GenerateImageToolInput, GenerateI
   ) {}
 
   async execute(input: GenerateImageToolInput) {
-    const result = await this.imageGenerator.generate({ prompt: input.prompt, aspectRatio: input.aspectRatio });
+    const result = await this.imageGenerator.generate({
+      prompt: buildImagePrompt(input.prompt),
+      aspectRatio: input.aspectRatio,
+    });
 
     // Converts to JPEG when needed: Instagram accepts JPEG only, and the mock
     // generator emits SVG. Storing the SVG under a .jpg name would just move
