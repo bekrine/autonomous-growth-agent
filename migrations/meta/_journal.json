@@ -64,6 +64,13 @@
       "when": 1789248601430,
       "tag": "0008_steep_lilith",
       "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "7",
+      "when": 1789334559289,
+      "tag": "0009_square_arclight",
+      "breakpoints": true
     }
   ]
 }

@@ -1,5 +1,5 @@
 import { relations } from "drizzle-orm";
-import { index, integer, jsonb, numeric, pgTable, text, timestamp, uuid } from "drizzle-orm/pg-core";
+import { boolean, index, integer, jsonb, numeric, pgTable, text, timestamp, uuid } from "drizzle-orm/pg-core";
 import { socialAccounts } from "./core.js";
 import { goalStatusEnum } from "./enums.js";
 import { agentRuns } from "./runtime.js";
@@ -69,12 +69,67 @@ export const strategyVersions = pgTable(
     // Which agent run produced this version, if any — traceability + the
     // idempotency check that stops a retried run from creating a duplicate.
     agentRunId: uuid("agent_run_id").references(() => agentRuns.id, { onDelete: "set null" }),
+
+    // --- Phase 7 (learning) ---
+    /**
+     * The version this one was derived from. This is what makes a strategy
+     * change reversible: a revert creates a NEW version whose content is
+     * copied from an older one, so history is never rewritten or deleted.
+     */
+    parentVersionId: uuid("parent_version_id"),
+    /** Human-readable diff, e.g. "reel 0.40 -> 0.55; carousel 0.35 -> 0.25". */
+    changeSummary: text("change_summary"),
+    /** The measurements that justified the change, so a version can be audited later. */
+    evidence: jsonb("evidence"),
+    /** insufficient | early_signal | moderate | strong — computed, never model-supplied. */
+    evidenceStrength: text("evidence_strength"),
+    confidence: text("confidence"),
+    /** learning | revert | agent_run — how this version came to exist. */
+    changeSource: text("change_source"),
+    learningRunId: uuid("learning_run_id"),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (table) => [
     index("strategy_versions_strategy_id_idx").on(table.strategyId),
     index("strategy_versions_strategy_id_version_idx").on(table.strategyId, table.versionNumber),
     index("strategy_versions_agent_run_id_idx").on(table.agentRunId),
+  ],
+);
+
+/**
+ * One learning review. Kept alongside the agent_run rather than inside it so
+ * the proposal and the deterministic evaluation are both preserved even when
+ * nothing was applied — a rejected proposal is exactly as interesting as an
+ * accepted one, and is the main way to tell whether the guardrails are working.
+ */
+export const learningRuns = pgTable(
+  "learning_runs",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    socialAccountId: uuid("social_account_id")
+      .notNull()
+      .references(() => socialAccounts.id, { onDelete: "cascade" }),
+    agentRunId: uuid("agent_run_id").references(() => agentRuns.id, { onDelete: "set null" }),
+    /** proposed | applied | rejected | no_change | failed */
+    outcome: text("outcome").notNull(),
+    /** insufficient | early_signal | moderate | strong */
+    evidenceStrength: text("evidence_strength"),
+    /** True when the run was not permitted to apply anything, for any reason. */
+    dryRun: boolean("dry_run").notNull().default(true),
+    /** Why nothing was applied: dry run, kill switch, policy, cooling period, bounds. */
+    blockedReason: text("blocked_reason"),
+    /** The LearningAgent's raw (schema-validated) proposal. */
+    proposal: jsonb("proposal"),
+    /** The deterministic evaluation: which changes passed, which were rejected and why. */
+    evaluation: jsonb("evaluation"),
+    /** The measured evidence the proposal was made against. */
+    evidence: jsonb("evidence"),
+    appliedStrategyVersionId: uuid("applied_strategy_version_id"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    index("learning_runs_social_account_id_idx").on(table.socialAccountId),
+    index("learning_runs_created_at_idx").on(table.createdAt),
   ],
 );
 
