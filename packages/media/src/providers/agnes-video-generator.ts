@@ -32,9 +32,13 @@ const MAX_FRAMES = 441;
 
 export function toValidFrameCount(desiredFrames: number): number {
   const clamped = Math.max(9, Math.min(MAX_FRAMES, Math.round(desiredFrames)));
-  // Round down to the nearest 8n+1 so we never exceed the requested duration.
-  const n = Math.floor((clamped - 1) / 8);
-  return n * 8 + 1;
+  // Round to the NEAREST valid count, not down. Rounding down turned a
+  // requested 2.0s clip (48 frames) into 1.71s (41 frames) — a 15% shortfall —
+  // when 49 frames is 2.04s and far closer to what was asked for. Being
+  // marginally over is harmless; being noticeably short is not.
+  const n = Math.round((clamped - 1) / 8);
+  const frames = n * 8 + 1;
+  return Math.max(9, Math.min(MAX_FRAMES, frames));
 }
 
 /**

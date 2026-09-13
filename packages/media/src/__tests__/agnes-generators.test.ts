@@ -193,14 +193,22 @@ describe("AgnesVideoGenerator", () => {
 
   it("rounds frame counts to the API's 8n+1 rule and caps them", () => {
     // The API rejects anything not of the form 8n+1, and anything over 441.
-    for (const frames of [9, 25, 120, 441, 1000]) {
+    for (const frames of [9, 25, 48, 120, 441, 1000]) {
       const valid = toValidFrameCount(frames);
       expect((valid - 1) % 8).toBe(0);
+      expect(valid).toBeGreaterThanOrEqual(9);
       expect(valid).toBeLessThanOrEqual(441);
     }
-    // Rounds down, so a clip is never longer than requested.
-    expect(toValidFrameCount(120)).toBeLessThanOrEqual(120);
     expect(toValidFrameCount(1000)).toBe(441);
+  });
+
+  it("rounds to the nearest valid count so a clip is not noticeably short", () => {
+    // 2s at 24fps = 48 frames. Rounding down gives 41 (1.71s, 15% short);
+    // nearest gives 49 (2.04s), which is what a caller asking for 2s expects.
+    expect(toValidFrameCount(48)).toBe(49);
+    expect(toValidFrameCount(49)).toBe(49);
+    // Still rounds down when that is genuinely nearer.
+    expect(toValidFrameCount(44)).toBe(41);
   });
 });
 
